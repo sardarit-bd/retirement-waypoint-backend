@@ -14,6 +14,4 @@ router.get('/', (req, res) => {
 
 router.use('/upload', UploadRoutes);
 
-
-
 export default router;

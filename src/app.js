@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import apiRoutes from './routes/index.js';
+import { AuthRoutes } from './modules/auth/auth.routes.js';
 import errorMiddleware from './middleware/errorMiddleware.js';
 
 dotenv.config();
@@ -18,6 +18,9 @@ app.use(cors({
   credentials: true
 }));
 
+// Better-auth routes
+app.use("/api/auth", AuthRoutes);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -26,6 +29,7 @@ app.get('/', (req, res) => {
     success: true,
     message: 'API Server is running',
     endpoints: {
+      auth: '/api/auth',
       api: '/api',
       health: '/api/health'
     },
@@ -33,9 +37,7 @@ app.get('/', (req, res) => {
   });
 });
 
-app.use('/api', apiRoutes);
-
-// 404
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
