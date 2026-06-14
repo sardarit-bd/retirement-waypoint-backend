@@ -1,4 +1,6 @@
 import ApiError from "../utils/ApiError.js";
+import multer from "multer";
+import { ZodError } from "zod";
 
 
 const errorMiddleware = (err, req, res, next) => {
@@ -20,6 +22,20 @@ const errorMiddleware = (err, req, res, next) => {
   // Mongoose validation error
   if (err.name === 'ValidationError') {
     const message = Object.values(err.errors).map(val => val.message).join(', ');
+    error = new ApiError(400, message);
+  }
+
+  if (err instanceof ZodError) {
+    const message = err.issues
+      .map((issue) => `${issue.path.join(".") || "request"}: ${issue.message}`)
+      .join(", ");
+    error = new ApiError(400, message);
+  }
+
+  if (err instanceof multer.MulterError) {
+    const message = err.code === "LIMIT_FILE_SIZE"
+      ? "Image must be 5MB or smaller"
+      : err.message;
     error = new ApiError(400, message);
   }
 
