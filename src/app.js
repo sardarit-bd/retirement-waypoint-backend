@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { AuthRoutes } from './modules/auth/auth.routes.js';
+import apiRoutes from './routes/index.js';
 import errorMiddleware from './middleware/errorMiddleware.js';
 
 dotenv.config();
@@ -23,6 +24,7 @@ app.use("/api/auth", AuthRoutes);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/api', apiRoutes);
 
 app.get('/', (req, res) => {
   res.status(200).json({ 

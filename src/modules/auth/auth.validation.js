@@ -2,14 +2,15 @@ import { z } from "zod";
 
 export const updateProfileValidation = z.object({
   body: z.object({
-    phone: z.string().optional(),
-    bio: z.string().max(500).optional(),
-    profileImage: z.string().url().optional(),
-    preferences: z.object({
-      newsletter: z.boolean().optional(),
-      notifications: z.boolean().optional(),
-    }).optional(),
-  }),
+    phone: z.string().trim().min(5).max(30).optional(),
+    bio: z.string().trim().max(500).optional(),
+    preferences: z
+      .object({
+        newsletter: z.boolean().optional(),
+        notifications: z.boolean().optional(),
+      })
+      .optional(),
+  }).strict(),
 });
 
 export const updateRoleValidation = z.object({
@@ -21,6 +22,15 @@ export const updateRoleValidation = z.object({
   }),
 });
 
+export const getUsersValidation = z.object({
+  query: z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    role: z.enum(["user", "admin", "coach"]).optional(),
+    search: z.string().trim().max(100).optional(),
+  }),
+});
+
 export const validate = (schema) => {
   return async (req, res, next) => {
     try {
@@ -28,7 +38,7 @@ export const validate = (schema) => {
         req.params = await schema.params.parseAsync(req.params);
       }
       if (schema.query) {
-        req.query = await schema.query.parseAsync(req.query);
+        req.validatedQuery = await schema.query.parseAsync(req.query);
       }
       if (schema.body) {
         req.body = await schema.body.parseAsync(req.body);

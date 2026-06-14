@@ -21,6 +21,10 @@ const userProfileSchema = new mongoose.Schema(
     profileImage: {
       type: String,
     },
+    profileImagePublicId: {
+      type: String,
+      select: false,
+    },
     bio: {
       type: String,
       maxLength: 500,

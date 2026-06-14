@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { UserProfile } from "./auth.model.js";
 import ApiError from "../../utils/ApiError.js";
+import UploadService from "../upload/upload.service.js";
 
 class AuthServiceClass {
   getUserCollection() {
@@ -70,33 +71,37 @@ class AuthServiceClass {
   }
 
   getProfilePayload(profile) {
-    return profile || {
-      role: "user",
-      isActive: true,
-      phone: undefined,
-      profileImage: undefined,
-      bio: undefined,
-      preferences: {
-        newsletter: false,
-        notifications: true,
-      },
-    };
+    return (
+      profile || {
+        role: "user",
+        isActive: true,
+        phone: undefined,
+        profileImage: undefined,
+        bio: undefined,
+        preferences: {
+          newsletter: false,
+          notifications: true,
+        },
+      }
+    );
   }
 
   async getAuthUserById(userId) {
-    const user = await this.getUserCollection().findOne(this.getUserIdFilter(userId));
+    const user = await this.getUserCollection().findOne(
+      this.getUserIdFilter(userId),
+    );
     return this.normalizeUser(user);
   }
 
   async getUserById(userId) {
     const user = await this.getAuthUserById(userId);
-    
+
     if (!user) {
       throw new ApiError(404, "User not found");
     }
-    
+
     const profile = await UserProfile.findOne({ userId: user.id });
-    
+
     return {
       ...user,
       profile: this.getProfilePayload(profile),
@@ -105,12 +110,12 @@ class AuthServiceClass {
 
   async getUserProfile(userId) {
     const profile = await UserProfile.findOne({ userId });
-    
+
     if (!profile) {
       // Create default profile if doesn't exist
       return await this.createDefaultProfile(userId);
     }
-    
+
     return profile;
   }
 
@@ -120,33 +125,112 @@ class AuthServiceClass {
       role: "user",
       isActive: true,
     });
-    
+
     return profile;
   }
 
   async updateUserProfile(userId, updateData) {
     let profile = await UserProfile.findOne({ userId });
-    
+
     if (!profile) {
       profile = await this.createDefaultProfile(userId);
     }
-    
-    const allowedUpdates = ["phone", "bio", "preferences", "profileImage"];
+
+    const allowedUpdates = ["phone", "bio"];
     const filteredData = {};
-    
+
     for (const key of allowedUpdates) {
       if (updateData[key] !== undefined) {
         filteredData[key] = updateData[key];
       }
     }
-    
+
+    if (updateData.preferences?.newsletter !== undefined) {
+      filteredData["preferences.newsletter"] = updateData.preferences.newsletter;
+    }
+
+    if (updateData.preferences?.notifications !== undefined) {
+      filteredData["preferences.notifications"] = updateData.preferences.notifications;
+    }
+
     const updatedProfile = await UserProfile.findOneAndUpdate(
       { userId },
       { $set: filteredData },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     );
-    
+
     return updatedProfile;
+  }
+
+  async updateProfileImage(userId, file) {
+    if (!file) {
+      throw new ApiError(400, "Profile image is required");
+    }
+
+    const currentProfile = await UserProfile.findOne({ userId })
+      .select("+profileImagePublicId");
+
+    const uploadedImage = await UploadService.uploadFile(file, userId, {
+      folder: "profiles",
+      maxSize: 5,
+      transformations: [
+        { width: 500, height: 500, crop: "fill", gravity: "face" },
+        { quality: "auto" },
+        { fetch_format: "auto" },
+      ],
+    });
+
+    const profile = await UserProfile.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          profileImage: uploadedImage.url,
+          profileImagePublicId: uploadedImage.publicId,
+        },
+        $setOnInsert: {
+          role: "user",
+          isActive: true,
+        },
+      },
+      { new: true, upsert: true, runValidators: true },
+    );
+
+    if (currentProfile?.profileImagePublicId) {
+      try {
+        await UploadService.deleteFile(
+          currentProfile.profileImagePublicId,
+          userId,
+        );
+      } catch (error) {
+        console.warn(`Old profile image cleanup failed: ${error.message}`);
+      }
+    }
+
+    return profile;
+  }
+
+  async removeProfileImage(userId) {
+    const profile = await UserProfile.findOne({ userId })
+      .select("+profileImagePublicId");
+
+    if (!profile?.profileImage) {
+      throw new ApiError(404, "Profile image not found");
+    }
+
+    const publicId = profile.profileImagePublicId;
+    profile.profileImage = undefined;
+    profile.profileImagePublicId = undefined;
+    await profile.save();
+
+    if (publicId) {
+      try {
+        await UploadService.deleteFile(publicId, userId);
+      } catch (error) {
+        console.warn(`Profile image cleanup failed: ${error.message}`);
+      }
+    }
+
+    return profile;
   }
 
   async getAllUsers(query = {}) {
@@ -158,12 +242,16 @@ class AuthServiceClass {
     let roleUserFilter = null;
 
     if (role) {
-      const profileFilter = role === "user" ? { role: { $ne: "user" } } : { role };
-      const profiles = await UserProfile.find(profileFilter).select("userId").lean();
+      const profileFilter =
+        role === "user" ? { role: { $ne: "user" } } : { role };
+      const profiles = await UserProfile.find(profileFilter)
+        .select("userId")
+        .lean();
       const userIds = profiles.map((profile) => profile.userId);
 
       if (role === "user") {
-        roleUserFilter = userIds.length > 0 ? this.getUsersExcludeIdFilter(userIds) : null;
+        roleUserFilter =
+          userIds.length > 0 ? this.getUsersExcludeIdFilter(userIds) : null;
       } else if (userIds.length === 0) {
         return {
           users: [],
@@ -179,7 +267,8 @@ class AuthServiceClass {
       }
     }
 
-    const searchTerm = typeof search === "string" ? this.escapeRegex(search.trim()) : "";
+    const searchTerm =
+      typeof search === "string" ? this.escapeRegex(search.trim()) : "";
     const searchFilter = searchTerm
       ? {
           $or: [
@@ -204,14 +293,18 @@ class AuthServiceClass {
 
     const normalizedUsers = users.map((user) => this.normalizeUser(user));
     const userIds = normalizedUsers.map((user) => user.id);
-    const profiles = await UserProfile.find({ userId: { $in: userIds } }).lean();
-    const profileMap = new Map(profiles.map((profile) => [profile.userId, profile]));
+    const profiles = await UserProfile.find({
+      userId: { $in: userIds },
+    }).lean();
+    const profileMap = new Map(
+      profiles.map((profile) => [profile.userId, profile]),
+    );
 
     const usersWithProfiles = normalizedUsers.map((user) => ({
       ...user,
       profile: this.getProfilePayload(profileMap.get(user.id)),
     }));
-    
+
     return {
       users: usersWithProfiles,
       pagination: {
@@ -223,7 +316,7 @@ class AuthServiceClass {
     };
   }
 
-  async updateUserRole(userId, role) {
+  async updateUserRole(userId, role, actorUserId) {
     if (!["user", "admin", "coach"].includes(role)) {
       throw new ApiError(400, "Invalid role");
     }
@@ -233,20 +326,38 @@ class AuthServiceClass {
     if (!user) {
       throw new ApiError(404, "User not found");
     }
-    
+
+    if (userId === actorUserId && role !== "admin") {
+      throw new ApiError(400, "You cannot remove your own admin role");
+    }
+
+    const currentProfile = await UserProfile.findOne({ userId });
+
+    if (currentProfile?.role === "admin" && role !== "admin") {
+      const adminCount = await UserProfile.countDocuments({ role: "admin" });
+
+      if (adminCount <= 1) {
+        throw new ApiError(400, "The last admin cannot be demoted");
+      }
+    }
+
     const profile = await UserProfile.findOneAndUpdate(
       { userId },
       {
         $set: { role },
         $setOnInsert: { isActive: true },
       },
-      { new: true, upsert: true, runValidators: true }
+      { new: true, upsert: true, runValidators: true },
     );
 
     return profile;
   }
 
-  async deactivateUser(userId) {
+  async deactivateUser(userId, actorUserId) {
+    if (userId === actorUserId) {
+      throw new ApiError(400, "You cannot deactivate your own account");
+    }
+
     const user = await this.getAuthUserById(userId);
 
     if (!user) {
@@ -259,8 +370,20 @@ class AuthServiceClass {
         $set: { isActive: false },
         $setOnInsert: { role: "user" },
       },
-      { new: true, upsert: true, runValidators: true }
+      { new: true, upsert: true, runValidators: true },
     );
+
+    const sessionUserFilters = [{ userId }];
+
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      sessionUserFilters.push({
+        userId: new mongoose.Types.ObjectId(userId),
+      });
+    }
+
+    await mongoose.connection.db
+      .collection("session")
+      .deleteMany({ $or: sessionUserFilters });
 
     return profile;
   }
@@ -278,10 +401,51 @@ class AuthServiceClass {
         $set: { isActive: true },
         $setOnInsert: { role: "user" },
       },
-      { new: true, upsert: true, runValidators: true }
+      { new: true, upsert: true, runValidators: true },
     );
 
     return profile;
+  }
+
+  async bootstrapAdmin(userId, setupSecret) {
+    if (!process.env.ADMIN_SETUP_SECRET) {
+      throw new ApiError(500, "Admin setup is not configured");
+    }
+
+    if (!setupSecret) {
+      throw new ApiError(400, "x-admin-setup-secret header is required");
+    }
+
+    if (setupSecret !== process.env.ADMIN_SETUP_SECRET) {
+      throw new ApiError(403, "Invalid admin setup secret");
+    }
+
+    const existingAdmin = await UserProfile.exists({ role: "admin" });
+
+    if (existingAdmin) {
+      throw new ApiError(409, "Admin already exists");
+    }
+
+    const user = await this.getAuthUserById(userId);
+
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    return UserProfile.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          role: "admin",
+          isActive: true,
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+      },
+    );
   }
 }
 
