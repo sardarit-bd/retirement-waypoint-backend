@@ -22,8 +22,13 @@ app.use(cors({
 // Better-auth routes
 app.use("/api/auth", AuthRoutes);
 
+// ✅ ONLY webhook gets raw body — exact path match
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
+
+// ✅ All other routes get JSON parsed body
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
 app.use('/api', apiRoutes);
 
 app.get('/', (req, res) => {

@@ -1,4 +1,21 @@
 import mongoose from "mongoose";
+import { customAlphabet } from "nanoid";
+
+// Generate unique order number with better collision resistance
+const generateOrderNumber = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+
+  // 6 character random string (more collision-resistant than 4-digit number)
+  const nanoid = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 6);
+  const random = nanoid();
+
+  return `ORD-${year}${month}${day}${hours}${minutes}-${random}`;
+};
 
 const orderSchema = new mongoose.Schema(
   {
@@ -11,17 +28,6 @@ const orderSchema = new mongoose.Schema(
       type: String,
       unique: true,
       index: true,
-      default: () => {
-        const date = new Date();
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const day = String(date.getDate()).padStart(2, "0");
-        const random = Math.floor(Math.random() * 10000)
-          .toString()
-          .padStart(4, "0");
-
-        return `ORD-${year}${month}${day}-${random}`;
-      },
     },
     subtotal: {
       type: Number,
@@ -76,20 +82,35 @@ orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ paymentStatus: 1, orderStatus: 1 });
 orderSchema.index({ orderNumber: 1 });
 
-// Pre-save middleware to generate order number
-// orderSchema.pre("save", async function (next) {
-//   if (this.isNew && !this.orderNumber) {
-//     const date = new Date();
-//     const year = date.getFullYear();
-//     const month = String(date.getMonth() + 1).padStart(2, "0");
-//     const day = String(date.getDate()).padStart(2, "0");
-//     const random = Math.floor(Math.random() * 10000)
-//       .toString()
-//       .padStart(4, "0");
-//     this.orderNumber = `ORD-${year}${month}${day}-${random}`;
-//   }
-//   next();
-// });
+// Pre-save middleware to generate unique order number
+orderSchema.pre("save", async function () {
+  if (this.isNew && !this.orderNumber) {
+    let isUnique = false;
+    let attempts = 0;
+    const maxAttempts = 5;
+
+    while (!isUnique && attempts < maxAttempts) {
+      const newOrderNumber = generateOrderNumber();
+
+      const existing = await mongoose
+        .model("Order")
+        .findOne({ orderNumber: newOrderNumber });
+
+      if (!existing) {
+        this.orderNumber = newOrderNumber;
+        isUnique = true;
+      }
+
+      attempts++;
+    }
+
+    if (!isUnique) {
+      throw new Error(
+        "Failed to generate unique order number after multiple attempts",
+      );
+    }
+  }
+});
 
 // Virtual for total items count
 orderSchema.virtual("itemsCount").get(function () {

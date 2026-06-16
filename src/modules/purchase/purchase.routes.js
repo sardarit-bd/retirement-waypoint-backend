@@ -15,29 +15,53 @@ const router = express.Router();
 // All purchase routes require authentication
 router.use(protect);
 
-// User routes
+// ==================== USER ROUTES ====================
+
+// 1. Get purchases with book details (specific path)
+router.get(
+  "/my-purchases-with-details",
+  validate(getUserPurchasesValidation),
+  PurchaseController.getMyPurchasesWithDetails,
+);
+
+// 2. Get purchases without book details (specific path)
 router.get(
   "/my-purchases",
   validate(getUserPurchasesValidation),
   PurchaseController.getMyPurchases,
 );
+
+// 3. Check if user has purchased a specific book
 router.get(
   "/check/:bookId",
   validate(checkPurchaseByBookValidation),
   PurchaseController.checkPurchaseByBook,
 );
+
+// 4. Get purchase by book ID
 router.get(
   "/book/:bookId",
   validate(checkPurchaseByBookValidation),
   PurchaseController.getPurchaseByBook,
 );
+
+// 5. Get purchase with book details by purchase ID (specific pattern)
+router.get(
+  "/:id/with-details",
+  validate(getPurchaseByIdValidation),
+  PurchaseController.getPurchaseWithBookDetails,
+);
+
+// 6. Get purchase by ID (dynamic - MUST be last)
 router.get(
   "/:id",
   validate(getPurchaseByIdValidation),
   PurchaseController.getPurchaseById,
 );
 
-// Admin only routes
+// ==================== ADMIN ROUTES ====================
+
+// 7. Get all purchases (admin only)
 router.get(
   "/",
   restrictTo("admin"),
@@ -45,24 +69,15 @@ router.get(
   PurchaseController.getAllPurchases,
 );
 
-router.get(
-  "/my-purchases-with-details",
-  validate(getUserPurchasesValidation),
-  PurchaseController.getMyPurchasesWithDetails,
-);
-
-router.get(
-  "/:id/with-details",
-  validate(getPurchaseByIdValidation),
-  PurchaseController.getPurchaseWithBookDetails,
-);
-
+// 8. Revoke access (admin only)
 router.patch(
   "/:id/revoke",
   restrictTo("admin"),
   validate(revokeAccessValidation),
   PurchaseController.revokeAccess,
 );
+
+// 9. Restore access (admin only)
 router.patch(
   "/:id/restore",
   restrictTo("admin"),

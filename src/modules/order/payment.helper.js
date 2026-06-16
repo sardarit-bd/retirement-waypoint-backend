@@ -1,4 +1,3 @@
-
 export const processSuccessfulPayment = async (orderId, stripePaymentIntentId) => {
     const { default: OrderService } = await import("./order.service.js");
     const { default: PurchaseService } = await import("../purchase/purchase.service.js");

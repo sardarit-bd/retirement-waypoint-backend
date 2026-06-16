@@ -139,6 +139,14 @@ class PurchaseServiceClass {
   }
 
   /**
+   * Get all purchases by order ID (for refund handling)
+   */
+  async getPurchasesByOrder(orderId) {
+    const purchases = await Purchase.find({ orderId });
+    return purchases;
+  }
+
+  /**
    * NEW: Get purchase with full book details (for frontend "My Books" page)
    * Single purchase lookup with book enrichment
    */

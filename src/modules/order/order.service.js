@@ -97,7 +97,13 @@ class OrderServiceClass {
 
   // Get order by ID with items
   async getOrderById(orderId) {
+    console.log("ORDER ID =", orderId);
+    console.log("TYPE =", typeof orderId);
+
     const order = await Order.findById(orderId);
+
+    console.log("FOUND ORDER =", order);
+
     if (!order) {
       throw new ApiError(404, "Order not found");
     }
