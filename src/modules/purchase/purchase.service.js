@@ -1,6 +1,9 @@
 import mongoose from "mongoose";
 import { Purchase } from "./purchase.model.js";
 import ApiError from "../../utils/ApiError.js";
+import { Order } from "../order/order.model.js";
+import { OrderItem } from "../order/orderItem.model.js";
+import { Book } from "../book/book.model.js";
 
 class PurchaseServiceClass {
   // Create purchase after successful payment
@@ -32,7 +35,9 @@ class PurchaseServiceClass {
 
       for (const bookId of bookIds) {
         // Check if already purchased
-        const existing = await Purchase.findOne({ userId, bookId }).session(session);
+        const existing = await Purchase.findOne({ userId, bookId }).session(
+          session,
+        );
         if (existing) {
           throw new ApiError(400, `Book ${bookId} already purchased`);
         }
@@ -47,7 +52,7 @@ class PurchaseServiceClass {
               accessStatus: "ACTIVE",
             },
           ],
-          { session }
+          { session },
         );
         purchases.push(purchase[0]);
       }
@@ -69,72 +74,86 @@ class PurchaseServiceClass {
    */
   async createPurchaseAfterPayment(orderId) {
     const session = await mongoose.startSession();
-    session.startTransaction();
 
     try {
-      // Dynamic import to avoid circular dependency
-      const { default: Order } = await import("../order/order.model.js");
-      const { default: OrderItem } = await import("../order/orderItem.model.js");
+      session.startTransaction();
 
-      // Get order with items
+      console.log("========== PURCHASE CREATION ==========");
+      console.log("ORDER ID =", orderId);
+
+      // Get order
       const order = await Order.findById(orderId).session(session);
+
       if (!order) {
         throw new ApiError(404, "Order not found");
       }
+
+      console.log("ORDER FOUND =", order._id);
 
       if (order.paymentStatus !== "PAID") {
         throw new ApiError(400, "Order payment not completed");
       }
 
-      const orderItems = await OrderItem.find({ orderId }).session(session);
-      
+      // Get order items
+      const orderItems = await OrderItem.find({
+        orderId: order._id,
+      }).session(session);
+
+      console.log("ORDER ITEMS COUNT =", orderItems.length);
+
       if (orderItems.length === 0) {
         throw new ApiError(400, "No items found in order");
       }
 
-      // Create purchases for each item
       const purchases = [];
+
       for (const item of orderItems) {
-        // Check if already purchased
+        // Check existing purchase
         const existingPurchase = await Purchase.findOne({
           userId: order.userId,
           bookId: item.bookId,
         }).session(session);
 
-        if (!existingPurchase) {
-          const purchase = await Purchase.create(
-            [
-              {
-                userId: order.userId,
-                bookId: item.bookId,
-                orderId: order._id,
-                purchasedAt: new Date(),
-                accessStatus: "ACTIVE",
-              },
-            ],
-            { session }
-          );
-          purchases.push(purchase[0]);
+        if (existingPurchase) {
+          console.log(`Purchase already exists for book ${item.bookId}`);
+          continue;
         }
+
+        const purchase = await Purchase.create(
+          [
+            {
+              userId: order.userId,
+              bookId: item.bookId,
+              orderId: order._id,
+              purchasedAt: new Date(),
+              accessStatus: "ACTIVE",
+            },
+          ],
+          { session },
+        );
+
+        purchases.push(purchase[0]);
       }
 
-      // Update order status to COMPLETED
-      order.orderStatus = "COMPLETED";
-      await order.save({ session });
-
       await session.commitTransaction();
-      session.endSession();
+
+      console.log(`SUCCESS: ${purchases.length} purchases created`);
 
       return {
         success: true,
-        message: `Created ${purchases.length} purchases`,
+        message: `${purchases.length} purchases created successfully`,
         purchases,
         order,
       };
     } catch (error) {
       await session.abortTransaction();
-      session.endSession();
+
+      console.error("PURCHASE CREATION ERROR:");
+      console.error(error);
+
       throw error;
+    } finally {
+      await session.endSession();
     }
   }
 
@@ -157,7 +176,9 @@ class PurchaseServiceClass {
     }
 
     const { default: Book } = await import("../book/book.model.js");
-    const book = await Book.findById(purchase.bookId).select("-pdfFile -pdfFilePublicId");
+    const book = await Book.findById(purchase.bookId).select(
+      "-pdfFile -pdfFilePublicId",
+    );
 
     return {
       ...purchase.toObject(),
@@ -181,7 +202,10 @@ class PurchaseServiceClass {
     const limitNumber = Math.min(Math.max(Number(limit) || 20, 1), 100);
     const skip = (pageNumber - 1) * limitNumber;
 
-    const filter = { userId, accessStatus: "ACTIVE" };
+    const filter = {
+      userId,
+      accessStatus: "ACTIVE",
+    };
 
     const sort = {};
     sort[sortBy] = sortOrder === "asc" ? 1 : -1;
@@ -205,23 +229,23 @@ class PurchaseServiceClass {
       };
     }
 
-    // Get all book IDs in one array
-    const bookIds = [...new Set(purchases.map(p => p.bookId))];
-    
-    // Fetch all books in one query (prevents N+1 problem)
-    const { default: Book } = await import("../book/book.model.js");
+    // Get all unique book IDs
+    const bookIds = [...new Set(purchases.map((purchase) => purchase.bookId))];
+
+    // Fetch books in a single query
     const books = await Book.find({
       _id: { $in: bookIds },
     }).select("-pdfFile -pdfFilePublicId");
 
-    // Create a map for O(1) lookup
+    // Create lookup map
     const bookMap = new Map();
-    books.forEach(book => {
+
+    books.forEach((book) => {
       bookMap.set(book._id.toString(), book);
     });
 
-    // Enrich purchases with book details
-    const enrichedPurchases = purchases.map(purchase => ({
+    // Attach book details
+    const enrichedPurchases = purchases.map((purchase) => ({
       ...purchase.toObject(),
       book: bookMap.get(purchase.bookId) || null,
     }));
@@ -329,7 +353,11 @@ class PurchaseServiceClass {
     sort[sortBy] = sortOrder === "asc" ? 1 : -1;
 
     const [purchases, total] = await Promise.all([
-      Purchase.find(filter).sort(sort).skip(skip).limit(limitNumber).populate("orderId"),
+      Purchase.find(filter)
+        .sort(sort)
+        .skip(skip)
+        .limit(limitNumber)
+        .populate("orderId"),
       Purchase.countDocuments(filter),
     ]);
 
