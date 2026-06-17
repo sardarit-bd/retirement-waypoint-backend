@@ -5,7 +5,8 @@ import { OrderRoutes } from '../modules/order/order.routes.js';
 import { PurchaseRoutes } from '../modules/purchase/purchase.routes.js';
 import { PaymentRoutes } from '../modules/payment/payment.routes.js';
 import { InvoiceRoutes } from '../modules/invoice/invoice.routes.js';
-import { MyBooksRoutes } from '../my-books/myBooks.routes.js';
+import { MyBooksRoutes } from '../modules/my-books/myBooks.routes.js';
+import { ReviewRoutes } from '../modules/review/review.routes.js';
 
 const router = express.Router();
 
@@ -26,5 +27,6 @@ router.use('/purchases', PurchaseRoutes);
 router.use('/payments', PaymentRoutes);
 router.use('/invoices', InvoiceRoutes);
 router.use('/my-books', MyBooksRoutes);
+router.use('/reviews', ReviewRoutes);
 
 export default router;
