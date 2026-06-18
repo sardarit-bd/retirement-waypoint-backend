@@ -5,6 +5,7 @@ import { FRONTEND_URL } from "../../config/stripe.js";
 import { Order } from "../order/order.model.js";
 import OrderService from "../order/order.service.js";
 import PurchaseService from "../purchase/purchase.service.js";
+import InvoiceService from "../invoice/invoice.service.js";
 
 class PaymentServiceClass {
   /**
@@ -38,10 +39,10 @@ class PaymentServiceClass {
           name: item.bookTitle,
           metadata: {
             bookId: item.bookId,
-            orderId: orderId,
+            orderId,
           },
         },
-        unit_amount: Math.round(item.bookPrice * 100),
+        unit_amount: Math.round(order.totalAmount * 100),
       },
       quantity: 1,
     }));
@@ -81,8 +82,7 @@ class PaymentServiceClass {
    * Retry payment for failed order
    */
   async retryPayment(orderId, userId) {
-    const { default: OrderService } = await import("../order/order.service.js");
-
+    // Using static import - NO dynamic import
     const order = await OrderService.getOrderById(orderId);
 
     // Verify order belongs to user
@@ -141,12 +141,10 @@ class PaymentServiceClass {
     const purchaseResult =
       await PurchaseService.createPurchaseAfterPayment(orderId);
 
-    // Create invoice
-    const { default: InvoiceService } =
-      await import("../invoice/invoice.service.js");
+    // Using static import - NO dynamic import
     const invoice = await InvoiceService.createInvoice(orderId);
 
-    // ✅ RECORD COUPON USAGE
+    // RECORD COUPON USAGE
     if (updatedOrder.couponId) {
       await OrderService.recordCouponUsageAfterPayment(
         orderId,
@@ -222,7 +220,6 @@ class PaymentServiceClass {
 
   /**
    * Verify Stripe webhook signature
-   * This method is now async and uses already imported stripe
    */
   async verifyWebhookSignature(rawBody, signature) {
     if (!signature) {

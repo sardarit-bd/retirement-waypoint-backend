@@ -4,7 +4,7 @@ import OrderService from "./order.service.js";
 import ApiError from "../../utils/ApiError.js";
 
 const createOrder = catchAsync(async (req, res) => {
-  const order = await OrderService.createOrder(req.user.id, req.body);
+  const order = await OrderService.applyCouponToOrder(req.user.id, req.body);
 
   sendResponse(res, {
     success: true,

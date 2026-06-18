@@ -29,6 +29,25 @@ const orderSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    // ==================== COUPON FIELDS (NEW) ====================
+    couponId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Coupon",
+      default: null,
+      index: true,
+    },
+    couponCode: {
+      type: String,
+      default: null,
+      trim: true,
+      uppercase: true,
+    },
+    discountAmount: {
+      type: Number,
+      default: 0,
+      min: [0, "Discount cannot be negative"],
+    },
+    // ===============================================================
     subtotal: {
       type: Number,
       required: [true, "Subtotal is required"],
@@ -81,6 +100,9 @@ const orderSchema = new mongoose.Schema(
 orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ paymentStatus: 1, orderStatus: 1 });
 orderSchema.index({ orderNumber: 1 });
+// Coupon indexes
+orderSchema.index({ couponId: 1 });
+orderSchema.index({ couponCode: 1 });
 
 // Pre-save middleware to generate unique order number
 orderSchema.pre("save", async function () {
@@ -115,6 +137,11 @@ orderSchema.pre("save", async function () {
 // Virtual for total items count
 orderSchema.virtual("itemsCount").get(function () {
   return this.items?.length || 0;
+});
+
+// ✅ Virtual to check if coupon was applied
+orderSchema.virtual("hasCoupon").get(function () {
+  return !!(this.couponId && this.discountAmount > 0);
 });
 
 // Ensure virtuals are included in JSON output

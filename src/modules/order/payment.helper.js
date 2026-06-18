@@ -1,6 +1,9 @@
+import PurchaseService from "../purchase/purchase.service.js";
+import OrderService from "./order.service.js";
+
 export const processSuccessfulPayment = async (orderId, stripePaymentIntentId) => {
-    const { default: OrderService } = await import("./order.service.js");
-    const { default: PurchaseService } = await import("../purchase/purchase.service.js");
+    // const { default: OrderService } = await import("./order.service.js");
+    // const { default: PurchaseService } = await import("../purchase/purchase.service.js");
   
     // 1. Update payment status
     const updatedOrder = await OrderService.updatePaymentStatus(orderId, "PAID", {
@@ -25,7 +28,7 @@ export const processSuccessfulPayment = async (orderId, stripePaymentIntentId) =
    * Prepare order data for Stripe checkout session
    */
   export const prepareOrderForStripe = async (orderId) => {
-    const { default: OrderService } = await import("./order.service.js");
+    // const { default: OrderService } = await import("./order.service.js");
     
     const order = await OrderService.getOrderById(orderId);
   

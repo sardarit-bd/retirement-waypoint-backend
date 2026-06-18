@@ -6,10 +6,10 @@ export const createOrderValidation = z.object({
     items: z.array(
       z.object({
         bookId: z.string().min(1, "Book ID is required"),
-        // bookTitle and bookPrice REMOVED - will be fetched from DB
-      }),
+      })
     ),
     notes: z.string().max(500).optional(),
+    couponCode: z.string().max(50).optional(),
   }),
 });
 
