@@ -8,6 +8,7 @@ import { InvoiceRoutes } from '../modules/invoice/invoice.routes.js';
 import { MyBooksRoutes } from '../modules/my-books/myBooks.routes.js';
 import { ReviewRoutes } from '../modules/review/review.routes.js';
 import { CouponRoutes } from '../modules/coupon/coupon.routes.js';
+import { AnalyticsRoutes } from '../modules/analytics/analytics.routes.js';
 
 const router = express.Router();
 
@@ -30,5 +31,6 @@ router.use('/invoices', InvoiceRoutes);
 router.use('/my-books', MyBooksRoutes);
 router.use('/reviews', ReviewRoutes);
 router.use('/coupons', CouponRoutes);
+router.use('/admin/analytics', AnalyticsRoutes);
 
 export default router;
