@@ -129,6 +129,90 @@ class AuthServiceClass {
     return profile;
   }
 
+  // Check if email already exists
+  async checkEmailExists(email) {
+    const userCollection = this.getUserCollection();
+    // Case-insensitive search
+    const user = await userCollection.findOne({
+      email: { $regex: `^${this.escapeRegex(email)}$`, $options: "i" },
+    });
+    return !!user; // true if exists, false if not
+  }
+
+  // Get user by email
+  async getUserByEmail(email) {
+    const userCollection = this.getUserCollection();
+    const user = await userCollection.findOne({
+      email: { $regex: `^${this.escapeRegex(email)}$`, $options: "i" },
+    });
+    return this.normalizeUser(user);
+  }
+
+  // Resend verification email
+  async resendVerificationEmail(email) {
+    const user = await this.getUserByEmail(email);
+
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    if (user.emailVerified) {
+      throw new ApiError(400, "Email already verified");
+    }
+
+    // Generate new verification token using Better Auth
+    const { auth } = await import("../../config/betterAuth.js");
+
+    const token = await auth.api.generateEmailVerificationToken({
+      body: {
+        email: user.email,
+      },
+    });
+
+    // Send verification email
+    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+
+    const { sendEmail } = await import("../../config/mailer.js");
+    await sendEmail({
+      to: user.email,
+      subject: "Verify your email address",
+      text: `Verify your email: ${verificationUrl}`,
+      html: `
+          <h2>Verify your email</h2>
+          <p>Hello ${user.name},</p>
+          <p>Click the button below to verify your email address.</p>
+          <a href="${verificationUrl}" style="display:inline-block;padding:12px 24px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Verify Email</a>
+          <p>This link expires in one hour.</p>
+        `,
+    });
+
+    return { message: "Verification email sent successfully" };
+  }
+
+  // Verify email token
+  async verifyEmailToken(token) {
+    if (!token) {
+      throw new ApiError(400, "Verification token is required");
+    }
+
+    const { auth } = await import("../../config/betterAuth.js");
+
+    try {
+      const result = await auth.api.verifyEmail({
+        body: {
+          token,
+        },
+      });
+
+      return result;
+    } catch (error) {
+      throw new ApiError(
+        400,
+        error.message || "Invalid or expired verification token",
+      );
+    }
+  }
+
   async updateUserProfile(userId, updateData) {
     let profile = await UserProfile.findOne({ userId });
 
@@ -146,11 +230,13 @@ class AuthServiceClass {
     }
 
     if (updateData.preferences?.newsletter !== undefined) {
-      filteredData["preferences.newsletter"] = updateData.preferences.newsletter;
+      filteredData["preferences.newsletter"] =
+        updateData.preferences.newsletter;
     }
 
     if (updateData.preferences?.notifications !== undefined) {
-      filteredData["preferences.notifications"] = updateData.preferences.notifications;
+      filteredData["preferences.notifications"] =
+        updateData.preferences.notifications;
     }
 
     const updatedProfile = await UserProfile.findOneAndUpdate(
@@ -167,8 +253,9 @@ class AuthServiceClass {
       throw new ApiError(400, "Profile image is required");
     }
 
-    const currentProfile = await UserProfile.findOne({ userId })
-      .select("+profileImagePublicId");
+    const currentProfile = await UserProfile.findOne({ userId }).select(
+      "+profileImagePublicId",
+    );
 
     const uploadedImage = await UploadService.uploadFile(file, userId, {
       folder: "profiles",
@@ -210,8 +297,9 @@ class AuthServiceClass {
   }
 
   async removeProfileImage(userId) {
-    const profile = await UserProfile.findOne({ userId })
-      .select("+profileImagePublicId");
+    const profile = await UserProfile.findOne({ userId }).select(
+      "+profileImagePublicId",
+    );
 
     if (!profile?.profileImage) {
       throw new ApiError(404, "Profile image not found");

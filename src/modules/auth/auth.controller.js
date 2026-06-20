@@ -141,6 +141,69 @@ const bootstrapAdmin = catchAsync(async (req, res) => {
   });
 });
 
+const checkEmailExists = catchAsync(async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return sendResponse(res, {
+      success: false,
+      statusCode: 400,
+      message: "Email is required",
+    });
+  }
+
+  const exists = await AuthService.checkEmailExists(email);
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "Email check completed",
+    data: { exists },
+  });
+});
+
+const resendVerification = catchAsync(async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return sendResponse(res, {
+      success: false,
+      statusCode: 400,
+      message: "Email is required",
+    });
+  }
+
+  const result = await AuthService.resendVerificationEmail(email);
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: result.message,
+    data: {},
+  });
+});
+
+const verifyEmail = catchAsync(async (req, res) => {
+  const { token } = req.query;
+
+  if (!token) {
+    return sendResponse(res, {
+      success: false,
+      statusCode: 400,
+      message: "Verification token is required",
+    });
+  }
+
+  const result = await AuthService.verifyEmailToken(token);
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "Email verified successfully",
+    data: result,
+  });
+});
+
 // Get better-auth API routes handler
 const authHandler = toNodeHandler(auth);
 
@@ -156,4 +219,7 @@ export const AuthController = {
   activateUser,
   authHandler,
   bootstrapAdmin,
+  checkEmailExists,
+  resendVerification,
+  verifyEmail,
 };
