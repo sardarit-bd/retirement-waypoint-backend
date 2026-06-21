@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
-import { APIError } from "better-auth/api";
+import { admin } from "better-auth/plugins";
 import { MongoClient } from "mongodb";
 import dotenv from "dotenv";
 import { UserProfile } from "../modules/auth/auth.model.js";
@@ -91,6 +91,13 @@ export const auth = betterAuth({
     },
   },
 
+  plugins: [
+    admin({
+      defaultRole: "user",
+      adminRoles: ["admin"],
+    }),
+  ],
+
   databaseHooks: {
     user: {
       create: {
@@ -99,28 +106,11 @@ export const auth = betterAuth({
             { userId: user.id },
             {
               $setOnInsert: {
-                role: "user",
-                isActive: true,
+                userId: user.id,
               },
             },
             { upsert: true }
           );
-        },
-      },
-    },
-    session: {
-      create: {
-        before: async (session) => {
-          const profile = await UserProfile.findOne({
-            userId: session.userId,
-          }).lean();
-
-          if (profile?.isActive === false) {
-            throw APIError.from("FORBIDDEN", {
-              message: "Your account has been deactivated",
-              code: "ACCOUNT_DEACTIVATED",
-            });
-          }
         },
       },
     },
