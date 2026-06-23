@@ -239,6 +239,85 @@ class PaymentServiceClass {
       throw new ApiError(400, `Invalid webhook signature: ${error.message}`);
     }
   }
+
+  /**
+  * Retry payment for failed or pending order
+  */
+  async retryPayment(orderId, userId) {
+    // 1. Get order with items
+    const order = await OrderService.getOrderById(orderId);
+
+    // 2. Verify order belongs to user
+    if (order.userId !== userId) {
+      throw new ApiError(403, "You don't have permission to retry this order");
+    }
+
+    // 3. Check if order can be retried
+    if (order.paymentStatus === "PAID" && order.orderStatus === "COMPLETED") {
+      throw new ApiError(400, "Order is already paid and completed");
+    }
+
+    if (order.orderStatus === "CANCELLED" && order.paymentStatus !== "FAILED") {
+      throw new ApiError(400, "Cancelled orders cannot be retried");
+    }
+
+    // 4. Check if order has items
+    if (!order.items || order.items.length === 0) {
+      throw new ApiError(400, "No items found in this order");
+    }
+
+    // 5. Build line items for Stripe from order items
+    const lineItems = order.items.map((item) => ({
+      price_data: {
+        currency: "usd",
+        product_data: {
+          name: item.bookTitle,
+          metadata: {
+            bookId: item.bookId,
+            orderId: order._id.toString(),
+          },
+        },
+        unit_amount: Math.round(item.bookPrice * 100),
+      },
+      quantity: 1,
+    }));
+
+    // 6. Create new Stripe Checkout Session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: lineItems,
+      mode: "payment",
+      success_url: `${FRONTEND_URL}/payment/success?orderId=${order._id}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${FRONTEND_URL}/payment/cancel?orderId=${order._id}`,
+      metadata: {
+        orderId: order._id.toString(),
+        userId: userId,
+        isRetry: "true",
+      },
+      client_reference_id: order._id.toString(),
+    });
+
+    // 7. Update order with new session ID and checkout URL
+    const updateData = {
+      stripeSessionId: session.id,
+      checkoutUrl: session.url,
+    };
+
+    // Reset payment status if failed
+    if (order.paymentStatus === "FAILED") {
+      updateData.paymentStatus = "PENDING";
+    }
+
+    await Order.findByIdAndUpdate(orderId, {
+      $set: updateData,
+    });
+
+    // 8. Return checkout URL
+    return {
+      checkoutUrl: session.url,
+      sessionId: session.id,
+    };
+  }
 }
 
 const PaymentService = new PaymentServiceClass();

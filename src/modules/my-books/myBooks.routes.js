@@ -2,16 +2,6 @@ import express from "express";
 import { protect, restrictTo } from "../../middleware/authMiddleware.js";
 import { downloadBookValidation, getDownloadLogsValidation, getDownloadStatsValidation, getMyBookByIdValidation, getMyBooksValidation, validate } from "./myBooks.validation.js";
 import { MyBooksController } from "./myBooks.controller.js";
-// import {
-//   getMyBooksValidation,
-//   getMyBookByIdValidation,
-//   downloadBookValidation,
-//   getDownloadLogsValidation,
-//   getDownloadStatsValidation,
-//   validate,
-// } from "./myBooks.validation.js";
-// import { MyBooksController } from "./myBooks.controller.js";
-// import { protect, restrictTo } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 

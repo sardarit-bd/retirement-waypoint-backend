@@ -90,6 +90,10 @@ const orderSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    checkoutUrl: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,

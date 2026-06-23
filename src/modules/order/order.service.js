@@ -59,6 +59,7 @@ class OrderServiceClass {
       bookMap.set(book._id.toString(), {
         title: book.title,
         price: book.price,
+        coverImage: book.coverImage,
       });
     });
 
@@ -76,6 +77,7 @@ class OrderServiceClass {
         bookId: item.bookId,
         bookTitle: bookData.title,
         bookPrice: bookData.price,
+        bookCoverImage: bookData.coverImage,
       };
     });
 
@@ -355,6 +357,7 @@ class OrderServiceClass {
         bookId: item.bookId,
         bookTitle: bookData.title,
         bookPrice: bookData.price,
+        bookCoverImage: bookData.coverImage,
       };
     });
 
@@ -435,14 +438,34 @@ class OrderServiceClass {
     if (!order.couponId || order.discountAmount === 0) {
       return null; // No coupon used
     }
-
-    // ✅ Using static import - NO dynamic import
+    
     return CouponService.recordCouponUsage(
       orderId,
       userId,
       order.couponId,
       order.discountAmount,
     );
+  }
+
+  async getOrderById(orderId) {
+    console.log("ORDER ID =", orderId);
+    console.log("TYPE =", typeof orderId);
+
+    const order = await Order.findById(orderId);
+
+    console.log("FOUND ORDER =", order);
+
+    if (!order) {
+      throw new ApiError(404, "Order not found");
+    }
+
+    const items = await OrderItem.find({ orderId: order._id });
+
+    return {
+      ...order.toObject(),
+      items,
+      // checkoutUrl is already included via toObject()
+    };
   }
 }
 

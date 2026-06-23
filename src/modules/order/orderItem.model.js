@@ -18,6 +18,10 @@ const orderItemSchema = new mongoose.Schema(
       required: [true, "Book title is required"],
       trim: true,
     },
+    bookCoverImage: {
+      type: String,
+      default: null
+    },
     bookPrice: {
       type: Number,
       required: [true, "Book price is required"],
