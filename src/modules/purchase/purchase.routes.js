@@ -15,16 +15,18 @@ const router = express.Router();
 // All purchase routes require authentication
 router.use(protect);
 
-// ==================== USER ROUTES ====================
+// ============================================================
+//  USER ROUTES (Specific paths FIRST, dynamic paths LAST)
+// ============================================================
 
-// 1. Get purchases with book details (specific path)
+// 1. Get purchases with book details
 router.get(
-  "/my-purchases-with-details",
+  "/my-purchases/with-details",
   validate(getUserPurchasesValidation),
   PurchaseController.getMyPurchasesWithDetails,
 );
 
-// 2. Get purchases without book details (specific path)
+// 2. Get purchases without book details
 router.get(
   "/my-purchases",
   validate(getUserPurchasesValidation),
@@ -45,21 +47,28 @@ router.get(
   PurchaseController.getPurchaseByBook,
 );
 
-// 5. Get purchase with book details by purchase ID (specific pattern)
+// ============================================================
+//  DYNAMIC ROUTES (MUST be after specific paths)
+// ============================================================
+
+// 5. Get purchase with book details by purchase ID
+//    ✅ specific pattern BEFORE generic /:id
 router.get(
   "/:id/with-details",
   validate(getPurchaseByIdValidation),
   PurchaseController.getPurchaseWithBookDetails,
 );
 
-// 6. Get purchase by ID (dynamic - MUST be last)
+// 6. Get purchase by ID (MUST be LAST)
 router.get(
   "/:id",
   validate(getPurchaseByIdValidation),
   PurchaseController.getPurchaseById,
 );
 
-// ==================== ADMIN ROUTES ====================
+// ============================================================
+//  ADMIN ROUTES
+// ============================================================
 
 // 7. Get all purchases (admin only)
 router.get(

@@ -11,6 +11,7 @@ import { CouponRoutes } from '../modules/coupon/coupon.routes.js';
 import { AnalyticsRoutes } from '../modules/analytics/analytics.routes.js';
 import { RefundRoutes } from '../modules/refund/refund.routes.js';
 import { AssessmentRoutes } from '../modules/assessment/assessment.routes.js';
+import { DashboardRoutes } from '../modules/dashboard/dashboard.routes.js';
 
 const router = express.Router();
 
@@ -36,5 +37,6 @@ router.use('/coupons', CouponRoutes);
 router.use('/admin/analytics', AnalyticsRoutes);
 router.use('/refunds', RefundRoutes);
 router.use('/assessments', AssessmentRoutes);
+router.use('/dashboard', DashboardRoutes);
 
 export default router;

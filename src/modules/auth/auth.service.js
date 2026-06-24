@@ -284,9 +284,10 @@ class AuthServiceClass {
       "+profileImagePublicId",
     );
 
-    const uploadedImage = await UploadService.uploadFile(file, userId, {
+    const uploadedImage = await UploadService.uploadFileWithValidation(file, {
+      maxSize: 5 * 1024 * 1024,
+      allowedTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
       folder: "profiles",
-      maxSize: 5,
       transformations: [
         { width: 500, height: 500, crop: "fill", gravity: "face" },
         { quality: "auto" },
