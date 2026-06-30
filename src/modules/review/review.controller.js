@@ -17,7 +17,21 @@ const createReview = catchAsync(async (req, res) => {
   sendResponse(res, {
     success: true,
     statusCode: 201,
-    message: "Review submitted successfully. It will be visible after admin approval.",
+    message:
+      "Review submitted successfully. It will be visible after admin approval.",
+    data: review,
+  });
+});
+
+const getMyReview = catchAsync(async (req, res) => {
+  const { bookId } = req.params;
+
+  const review = await ReviewService.getMyReview(req.user.id, bookId);
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "Review retrieved successfully",
     data: review,
   });
 });
@@ -189,6 +203,7 @@ const getReviewSummary = catchAsync(async (req, res) => {
 
 export const ReviewController = {
   createReview,
+  getMyReview,
   updateReview,
   deleteReview,
   getMyReviews,

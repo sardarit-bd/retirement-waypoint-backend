@@ -15,11 +15,33 @@ import {
 } from "./review.validation.js";
 import { ReviewController } from "./review.controller.js";
 
-
 const router = express.Router();
 
-// ==================== USER ROUTES ====================
+// ==================== PUBLIC ROUTES ====================
+
+// Get book reviews (public - approved only)
+router.get(
+  "/books/:bookId/reviews",
+  validate(getBookReviewsValidation),
+  ReviewController.getBookReviews,
+);
+
+// Get review summary (public)
+router.get(
+  "/books/:bookId/reviews/summary",
+  validate(getReviewSummaryValidation),
+  ReviewController.getReviewSummary,
+);
+
+// ==================== PROTECTED ROUTES ====================
+
 router.use(protect);
+
+// Get current user's review for a book
+router.get(
+  "/my-review/:bookId",
+  ReviewController.getMyReview,
+);
 
 // Create review
 router.post(
@@ -88,22 +110,6 @@ router.delete(
   restrictTo("admin"),
   validate(deleteReviewValidation),
   ReviewController.adminDeleteReview,
-);
-
-// ==================== PUBLIC ROUTES ====================
-
-// Get book reviews (public - approved only)
-router.get(
-  "/books/:bookId/reviews",
-  validate(getBookReviewsValidation),
-  ReviewController.getBookReviews,
-);
-
-// Get review summary (public)
-router.get(
-  "/books/:bookId/reviews/summary",
-  validate(getReviewSummaryValidation),
-  ReviewController.getReviewSummary,
 );
 
 export const ReviewRoutes = router;

@@ -4,7 +4,6 @@ import { Review } from "./review.model.js";
 import { Book } from "../book/book.model.js";
 import ApiError from "../../utils/ApiError.js";
 
-
 class ReviewServiceClass {
   /**
    * Verify user has purchased the book
@@ -15,12 +14,19 @@ class ReviewServiceClass {
       bookId,
       accessStatus: "ACTIVE",
     });
-    
+
     if (!purchase) {
       throw new ApiError(403, "You can only review books you have purchased");
     }
-    
+
     return purchase;
+  }
+
+  async getMyReview(userId, bookId) {
+    return await Review.findOne({
+      userId,
+      bookId,
+    });
   }
 
   /**
@@ -61,7 +67,7 @@ class ReviewServiceClass {
           totalReviews: result.totalReviews,
         },
       },
-      { new: true }
+      { new: true },
     );
 
     return result;
@@ -227,7 +233,7 @@ class ReviewServiceClass {
 
     // Get book details
     const book = await Book.findById(review.bookId).select(
-      "title coverImage authorName slug"
+      "title coverImage authorName slug",
     );
 
     return {
@@ -278,7 +284,7 @@ class ReviewServiceClass {
         .sort(sort)
         .skip(skip)
         .limit(limitNumber)
-        .populate("userId", "name email"),
+        .select("-approvedBy"),
       Review.countDocuments(filter),
     ]);
 
@@ -378,12 +384,38 @@ class ReviewServiceClass {
         .sort(sort)
         .skip(skip)
         .limit(limitNumber)
-        .select("-userId -isVerifiedPurchase -approvedBy"),
+        .select("-approvedBy"),
       Review.countDocuments(filter),
     ]);
 
+    const userCollection = mongoose.connection.db.collection("user");
+
+    const userIds = reviews
+      .map((review) => review.userId)
+      .filter((id) => mongoose.Types.ObjectId.isValid(id));
+
+    const users = await userCollection
+      .find({
+        _id: { $in: userIds.map((id) => new mongoose.Types.ObjectId(id)) },
+      })
+      .toArray();
+
+    const userMap = new Map();
+    users.forEach((user) => {
+      userMap.set(user._id.toString(), user);
+    });
+
+    const enrichedReviews = reviews.map((review) => ({
+      ...review.toObject(),
+      user: {
+        id: review.userId,
+        name: userMap.get(review.userId)?.name || "Anonymous User",
+        image: userMap.get(review.userId)?.image || null,
+      },
+    }));
+
     return {
-      reviews,
+      reviews: enrichedReviews,
       pagination: {
         page: pageNumber,
         limit: limitNumber,
@@ -399,14 +431,14 @@ class ReviewServiceClass {
    * Get review summary (public)
    */
   async getReviewSummary(bookId) {
-    // Check if book exists
     const book = await Book.findById(bookId);
+
     if (!book) {
       throw new ApiError(404, "Book not found");
     }
 
-    // Get rating breakdown
-    const breakdown = await Review.aggregate([
+    // Get average rating, total reviews & rating breakdown
+    const stats = await Review.aggregate([
       {
         $match: {
           bookId,
@@ -420,7 +452,9 @@ class ReviewServiceClass {
         },
       },
       {
-        $sort: { _id: -1 },
+        $sort: {
+          _id: -1,
+        },
       },
     ]);
 
@@ -432,13 +466,18 @@ class ReviewServiceClass {
       1: 0,
     };
 
-    breakdown.forEach((item) => {
+    let totalReviews = 0;
+    let totalRating = 0;
+
+    stats.forEach((item) => {
       ratingBreakdown[item._id] = item.count;
+
+      totalReviews += item.count;
+      totalRating += item._id * item.count;
     });
 
-    // Get total and average from Book model
-    const totalReviews = book.totalReviews || 0;
-    const averageRating = book.averageRating || 0;
+    const averageRating =
+      totalReviews > 0 ? Number((totalRating / totalReviews).toFixed(1)) : 0;
 
     return {
       averageRating,

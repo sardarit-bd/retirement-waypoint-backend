@@ -56,6 +56,17 @@ const bookSchema = new mongoose.Schema(
       required: [true, "Page count is required"],
       min: [1, "Page count must be at least 1"],
     },
+    averageRating: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5,
+    },
+    totalReviews: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     featured: {
       type: Boolean,
       default: false,
