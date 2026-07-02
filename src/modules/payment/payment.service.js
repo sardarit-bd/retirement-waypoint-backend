@@ -81,26 +81,26 @@ class PaymentServiceClass {
   /**
    * Retry payment for failed order
    */
-  async retryPayment(orderId, userId) {
-    // Using static import - NO dynamic import
-    const order = await OrderService.getOrderById(orderId);
+  // async retryPayment(orderId, userId) {
+  //   // Using static import - NO dynamic import
+  //   const order = await OrderService.getOrderById(orderId);
 
-    // Verify order belongs to user
-    if (order.userId !== userId) {
-      throw new ApiError(403, "You don't have permission to retry this order");
-    }
+  //   // Verify order belongs to user
+  //   if (order.userId !== userId) {
+  //     throw new ApiError(403, "You don't have permission to retry this order");
+  //   }
 
-    // Verify order is failed
-    if (order.paymentStatus !== "FAILED") {
-      throw new ApiError(
-        400,
-        `Cannot retry payment for order with status: ${order.paymentStatus}`,
-      );
-    }
+  //   // Verify order is failed
+  //   if (order.paymentStatus !== "FAILED") {
+  //     throw new ApiError(
+  //       400,
+  //       `Cannot retry payment for order with status: ${order.paymentStatus}`,
+  //     );
+  //   }
 
-    // Create new checkout session
-    return this.createCheckoutSession(orderId, userId);
-  }
+  //   // Create new checkout session
+  //   return this.createCheckoutSession(orderId, userId);
+  // }
 
   /**
    * Handle successful payment (called from webhook)
