@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import catchAsync from "../../utils/catchAsync.js";
 import sendResponse from "../../utils/sendResponse.js";
 import BookService from "./book.service.js";
@@ -32,6 +33,12 @@ const createBook = catchAsync(async (req, res) => {
 
 const updateBook = catchAsync(async (req, res) => {
   const { id } = req.params;
+  
+  // Validate if ID is a valid MongoDB ObjectId
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, "Invalid book ID format");
+  }
+  
   const coverImage = req.files?.coverImage?.[0] || null;
   const pdfFile = req.files?.pdfFile?.[0] || null;
 
@@ -47,6 +54,12 @@ const updateBook = catchAsync(async (req, res) => {
 
 const getBookById = catchAsync(async (req, res) => {
   const { id } = req.params;
+  
+  // Validate if ID is a valid MongoDB ObjectId
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, "Invalid book ID format");
+  }
+  
   const book = await BookService.getBookById(id);
 
   sendResponse(res, {
@@ -72,6 +85,11 @@ const getAllBooks = catchAsync(async (req, res) => {
 
 const publishBook = catchAsync(async (req, res) => {
   const { id } = req.params;
+  
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, "Invalid book ID format");
+  }
+  
   const book = await BookService.publishBook(id);
 
   sendResponse(res, {
@@ -84,6 +102,11 @@ const publishBook = catchAsync(async (req, res) => {
 
 const archiveBook = catchAsync(async (req, res) => {
   const { id } = req.params;
+  
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, "Invalid book ID format");
+  }
+  
   const book = await BookService.archiveBook(id);
 
   sendResponse(res, {
@@ -96,6 +119,11 @@ const archiveBook = catchAsync(async (req, res) => {
 
 const deleteBook = catchAsync(async (req, res) => {
   const { id } = req.params;
+  
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, "Invalid book ID format");
+  }
+  
   const result = await BookService.deleteBook(id);
 
   sendResponse(res, {

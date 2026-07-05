@@ -5,6 +5,7 @@ import ApiError from "../../utils/ApiError.js";
 import { Book } from "../book/book.model.js";
 import { Purchase } from "../purchase/purchase.model.js";
 import CouponService from "../coupon/coupon.service.js";
+import AuthService from "../auth/auth.service.js";
 
 class OrderServiceClass {
   // Create order with items
@@ -58,6 +59,7 @@ class OrderServiceClass {
     books.forEach((book) => {
       bookMap.set(book._id.toString(), {
         title: book.title,
+        authorName: book.authorName,
         price: book.price,
         coverImage: book.coverImage,
       });
@@ -76,6 +78,7 @@ class OrderServiceClass {
       return {
         bookId: item.bookId,
         bookTitle: bookData.title,
+        authorName: bookData.authorName,
         bookPrice: bookData.price,
         bookCoverImage: bookData.coverImage,
       };
@@ -143,11 +146,23 @@ class OrderServiceClass {
       throw new ApiError(404, "Order not found");
     }
 
+    // Fetch order items
     const items = await OrderItem.find({ orderId: order._id });
+
+    // Fetch user from Better Auth
+    const user = await AuthService.getAuthUserById(order.userId);
 
     return {
       ...order.toObject(),
       items,
+      user: user
+        ? {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            image: user.image,
+          }
+        : null,
     };
   }
 
@@ -219,9 +234,11 @@ class OrderServiceClass {
     if (paymentStatus) filter.paymentStatus = paymentStatus;
     if (orderStatus) filter.orderStatus = orderStatus;
 
-    // Search by order number
     if (search && search.trim()) {
-      filter.orderNumber = { $regex: search.trim(), $options: "i" };
+      filter.orderNumber = {
+        $regex: search.trim(),
+        $options: "i",
+      };
     }
 
     const sort = {};
@@ -232,13 +249,27 @@ class OrderServiceClass {
       Order.countDocuments(filter),
     ]);
 
-    // Get items for each order
     const ordersWithItems = await Promise.all(
       orders.map(async (order) => {
-        const items = await OrderItem.find({ orderId: order._id });
+        // Order Items
+        const items = await OrderItem.find({
+          orderId: order._id,
+        });
+
+        // Better Auth User
+        const user = await AuthService.getAuthUserById(order.userId);
+
         return {
           ...order.toObject(),
           items,
+          user: user
+            ? {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                image: user.image,
+              }
+            : null,
         };
       }),
     );
@@ -343,7 +374,9 @@ class OrderServiceClass {
     books.forEach((book) => {
       bookMap.set(book._id.toString(), {
         title: book.title,
+        authorName: book.authorName,
         price: book.price,
+        coverImage: book.coverImage,
       });
     });
 
@@ -438,7 +471,7 @@ class OrderServiceClass {
     if (!order.couponId || order.discountAmount === 0) {
       return null; // No coupon used
     }
-    
+
     return CouponService.recordCouponUsage(
       orderId,
       userId,
@@ -447,26 +480,26 @@ class OrderServiceClass {
     );
   }
 
-  async getOrderById(orderId) {
-    console.log("ORDER ID =", orderId);
-    console.log("TYPE =", typeof orderId);
+  // async getOrderById(orderId) {
+  //   console.log("ORDER ID =", orderId);
+  //   console.log("TYPE =", typeof orderId);
 
-    const order = await Order.findById(orderId);
+  //   const order = await Order.findById(orderId);
 
-    console.log("FOUND ORDER =", order);
+  //   console.log("FOUND ORDER =", order);
 
-    if (!order) {
-      throw new ApiError(404, "Order not found");
-    }
+  //   if (!order) {
+  //     throw new ApiError(404, "Order not found");
+  //   }
 
-    const items = await OrderItem.find({ orderId: order._id });
+  //   const items = await OrderItem.find({ orderId: order._id });
 
-    return {
-      ...order.toObject(),
-      items,
-      // checkoutUrl is already included via toObject()
-    };
-  }
+  //   return {
+  //     ...order.toObject(),
+  //     items,
+  //     // checkoutUrl is already included via toObject()
+  //   };
+  // }
 }
 
 const OrderService = new OrderServiceClass();
