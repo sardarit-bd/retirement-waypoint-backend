@@ -71,10 +71,8 @@ class AuthServiceClass {
   }
 
   getProfilePayload(profile) {
-    return (
-      profile || {
-        role: "user",
-        isActive: true,
+    if (!profile) {
+      return {
         phone: undefined,
         profileImage: undefined,
         bio: undefined,
@@ -82,8 +80,19 @@ class AuthServiceClass {
           newsletter: false,
           notifications: true,
         },
-      }
-    );
+      };
+    }
+
+    const profileObject =
+      typeof profile.toObject === "function" ? profile.toObject() : profile;
+    const {
+      role: _legacyRole,
+      isActive: _legacyIsActive,
+      profileImagePublicId: _privateImageId,
+      ...publicProfile
+    } = profileObject;
+
+    return publicProfile;
   }
 
   async getAuthUserById(userId) {
@@ -91,6 +100,24 @@ class AuthServiceClass {
       this.getUserIdFilter(userId),
     );
     return this.normalizeUser(user);
+  }
+
+  async updateAuthUser(userId, updateData) {
+    const result = await this.getUserCollection().updateOne(
+      this.getUserIdFilter(userId),
+      {
+        $set: {
+          ...updateData,
+          updatedAt: new Date(),
+        },
+      },
+    );
+
+    if (result.matchedCount === 0) {
+      throw new ApiError(404, "User not found");
+    }
+
+    return this.getAuthUserById(userId);
   }
 
   async getUserById(userId) {
@@ -129,6 +156,90 @@ class AuthServiceClass {
     return profile;
   }
 
+  // Check if email already exists
+  async checkEmailExists(email) {
+    const userCollection = this.getUserCollection();
+    // Case-insensitive search
+    const user = await userCollection.findOne({
+      email: { $regex: `^${this.escapeRegex(email)}$`, $options: "i" },
+    });
+    return !!user; // true if exists, false if not
+  }
+
+  // Get user by email
+  async getUserByEmail(email) {
+    const userCollection = this.getUserCollection();
+    const user = await userCollection.findOne({
+      email: { $regex: `^${this.escapeRegex(email)}$`, $options: "i" },
+    });
+    return this.normalizeUser(user);
+  }
+
+  // Resend verification email
+  async resendVerificationEmail(email) {
+    const user = await this.getUserByEmail(email);
+
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    if (user.emailVerified) {
+      throw new ApiError(400, "Email already verified");
+    }
+
+    // Generate new verification token using Better Auth
+    const { auth } = await import("../../config/betterAuth.js");
+
+    const token = await auth.api.generateEmailVerificationToken({
+      body: {
+        email: user.email,
+      },
+    });
+
+    // Send verification email
+    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+
+    const { sendEmail } = await import("../../config/mailer.js");
+    await sendEmail({
+      to: user.email,
+      subject: "Verify your email address",
+      text: `Verify your email: ${verificationUrl}`,
+      html: `
+          <h2>Verify your email</h2>
+          <p>Hello ${user.name},</p>
+          <p>Click the button below to verify your email address.</p>
+          <a href="${verificationUrl}" style="display:inline-block;padding:12px 24px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Verify Email</a>
+          <p>This link expires in one hour.</p>
+        `,
+    });
+
+    return { message: "Verification email sent successfully" };
+  }
+
+  // Verify email token
+  async verifyEmailToken(token) {
+    if (!token) {
+      throw new ApiError(400, "Verification token is required");
+    }
+
+    const { auth } = await import("../../config/betterAuth.js");
+
+    try {
+      const result = await auth.api.verifyEmail({
+        body: {
+          token,
+        },
+      });
+
+      return result;
+    } catch (error) {
+      throw new ApiError(
+        400,
+        error.message || "Invalid or expired verification token",
+      );
+    }
+  }
+
   async updateUserProfile(userId, updateData) {
     let profile = await UserProfile.findOne({ userId });
 
@@ -146,11 +257,13 @@ class AuthServiceClass {
     }
 
     if (updateData.preferences?.newsletter !== undefined) {
-      filteredData["preferences.newsletter"] = updateData.preferences.newsletter;
+      filteredData["preferences.newsletter"] =
+        updateData.preferences.newsletter;
     }
 
     if (updateData.preferences?.notifications !== undefined) {
-      filteredData["preferences.notifications"] = updateData.preferences.notifications;
+      filteredData["preferences.notifications"] =
+        updateData.preferences.notifications;
     }
 
     const updatedProfile = await UserProfile.findOneAndUpdate(
@@ -167,12 +280,14 @@ class AuthServiceClass {
       throw new ApiError(400, "Profile image is required");
     }
 
-    const currentProfile = await UserProfile.findOne({ userId })
-      .select("+profileImagePublicId");
+    const currentProfile = await UserProfile.findOne({ userId }).select(
+      "+profileImagePublicId",
+    );
 
-    const uploadedImage = await UploadService.uploadFile(file, userId, {
+    const uploadedImage = await UploadService.uploadFileWithValidation(file, {
+      maxSize: 5 * 1024 * 1024,
+      allowedTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
       folder: "profiles",
-      maxSize: 5,
       transformations: [
         { width: 500, height: 500, crop: "fill", gravity: "face" },
         { quality: "auto" },
@@ -210,8 +325,9 @@ class AuthServiceClass {
   }
 
   async removeProfileImage(userId) {
-    const profile = await UserProfile.findOne({ userId })
-      .select("+profileImagePublicId");
+    const profile = await UserProfile.findOne({ userId }).select(
+      "+profileImagePublicId",
+    );
 
     if (!profile?.profileImage) {
       throw new ApiError(404, "Profile image not found");
@@ -239,33 +355,11 @@ class AuthServiceClass {
     const limitNumber = Math.min(Math.max(Number(limit) || 20, 1), 100);
     const skip = (pageNumber - 1) * limitNumber;
 
-    let roleUserFilter = null;
-
-    if (role) {
-      const profileFilter =
-        role === "user" ? { role: { $ne: "user" } } : { role };
-      const profiles = await UserProfile.find(profileFilter)
-        .select("userId")
-        .lean();
-      const userIds = profiles.map((profile) => profile.userId);
-
-      if (role === "user") {
-        roleUserFilter =
-          userIds.length > 0 ? this.getUsersExcludeIdFilter(userIds) : null;
-      } else if (userIds.length === 0) {
-        return {
-          users: [],
-          pagination: {
-            page: pageNumber,
-            limit: limitNumber,
-            total: 0,
-            totalPages: 0,
-          },
-        };
-      } else {
-        roleUserFilter = this.getUsersIdFilter(userIds);
-      }
-    }
+    const roleUserFilter = role
+      ? role === "user"
+        ? { $or: [{ role: "user" }, { role: { $exists: false } }] }
+        : { role }
+      : null;
 
     const searchTerm =
       typeof search === "string" ? this.escapeRegex(search.trim()) : "";
@@ -331,16 +425,19 @@ class AuthServiceClass {
       throw new ApiError(400, "You cannot remove your own admin role");
     }
 
-    const currentProfile = await UserProfile.findOne({ userId });
-
-    if (currentProfile?.role === "admin" && role !== "admin") {
-      const adminCount = await UserProfile.countDocuments({ role: "admin" });
+    if (user.role === "admin" && role !== "admin") {
+      const adminCount = await this.getUserCollection().countDocuments({
+        role: "admin",
+      });
 
       if (adminCount <= 1) {
         throw new ApiError(400, "The last admin cannot be demoted");
       }
     }
 
+    const updatedUser = await this.updateAuthUser(userId, { role });
+
+    // Temporary compatibility mirror. Authorization never reads this field.
     const profile = await UserProfile.findOneAndUpdate(
       { userId },
       {
@@ -350,7 +447,10 @@ class AuthServiceClass {
       { new: true, upsert: true, runValidators: true },
     );
 
-    return profile;
+    return {
+      ...updatedUser,
+      profile: this.getProfilePayload(profile),
+    };
   }
 
   async deactivateUser(userId, actorUserId) {
@@ -364,7 +464,14 @@ class AuthServiceClass {
       throw new ApiError(404, "User not found");
     }
 
-    const profile = await UserProfile.findOneAndUpdate(
+    const updatedUser = await this.updateAuthUser(userId, {
+      banned: true,
+      banReason: "Account deactivated by an administrator",
+      banExpires: null,
+    });
+
+    // Temporary compatibility mirror. Authorization never reads this field.
+    await UserProfile.findOneAndUpdate(
       { userId },
       {
         $set: { isActive: false },
@@ -385,7 +492,7 @@ class AuthServiceClass {
       .collection("session")
       .deleteMany({ $or: sessionUserFilters });
 
-    return profile;
+    return updatedUser;
   }
 
   async activateUser(userId) {
@@ -395,7 +502,14 @@ class AuthServiceClass {
       throw new ApiError(404, "User not found");
     }
 
-    const profile = await UserProfile.findOneAndUpdate(
+    const updatedUser = await this.updateAuthUser(userId, {
+      banned: false,
+      banReason: null,
+      banExpires: null,
+    });
+
+    // Temporary compatibility mirror. Authorization never reads this field.
+    await UserProfile.findOneAndUpdate(
       { userId },
       {
         $set: { isActive: true },
@@ -404,7 +518,7 @@ class AuthServiceClass {
       { new: true, upsert: true, runValidators: true },
     );
 
-    return profile;
+    return updatedUser;
   }
 
   async bootstrapAdmin(userId, setupSecret) {
@@ -420,7 +534,9 @@ class AuthServiceClass {
       throw new ApiError(403, "Invalid admin setup secret");
     }
 
-    const existingAdmin = await UserProfile.exists({ role: "admin" });
+    const existingAdmin = await this.getUserCollection().findOne({
+      role: "admin",
+    });
 
     if (existingAdmin) {
       throw new ApiError(409, "Admin already exists");
@@ -432,7 +548,15 @@ class AuthServiceClass {
       throw new ApiError(404, "User not found");
     }
 
-    return UserProfile.findOneAndUpdate(
+    const updatedUser = await this.updateAuthUser(userId, {
+      role: "admin",
+      banned: false,
+      banReason: null,
+      banExpires: null,
+    });
+
+    // Temporary compatibility mirror. Authorization never reads this field.
+    await UserProfile.findOneAndUpdate(
       { userId },
       {
         $set: {
@@ -446,6 +570,8 @@ class AuthServiceClass {
         runValidators: true,
       },
     );
+
+    return updatedUser;
   }
 }
 

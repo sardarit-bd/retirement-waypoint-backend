@@ -11,6 +11,15 @@ import { profileImageUpload } from "../../middleware/uploadMiddleware.js";
 
 const router = express.Router();
 
+// Public routes - Add these at the top of the file
+router.get("/check-email", AuthController.checkEmailExists);
+router.post(
+  "/resend-verification",
+  express.json(),
+  AuthController.resendVerification,
+);
+router.get("/verify-email", AuthController.verifyEmail);
+
 // Protected routes
 router.get("/me", protect, AuthController.getMe);
 router.patch(

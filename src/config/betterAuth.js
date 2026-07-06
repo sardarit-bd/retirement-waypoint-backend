@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
-import { APIError } from "better-auth/api";
+import { admin } from "better-auth/plugins";
 import { MongoClient } from "mongodb";
 import dotenv from "dotenv";
 import { UserProfile } from "../modules/auth/auth.model.js";
@@ -41,7 +41,7 @@ export const auth = betterAuth({
     revokeSessionsOnPasswordReset: true,
 
     sendResetPassword: async ({ user, url }) => {
-      void sendEmail({
+      await sendEmail({
         to: user.email,
         subject: "Reset your password",
         text: `Reset your password: ${url}`,
@@ -58,7 +58,7 @@ export const auth = betterAuth({
 
   emailVerification: {
     sendVerificationEmail: async ({ user, url }) => {
-      void sendEmail({
+      await sendEmail({
         to: user.email,
         subject: "Verify your email address",
         text: `Verify your email: ${url}`,
@@ -66,14 +66,15 @@ export const auth = betterAuth({
           <h2>Verify your email</h2>
           <p>Hello ${user.name},</p>
           <p>Click the button below to verify your email address.</p>
-          <a href="${url}">Verify Email</a>
+          <a href="${url}" style="display:inline-block;padding:12px 24px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Verify Email</a>
+          <p>This link expires in one hour.</p>
         `,
       });
     },
     sendOnSignUp: true,
-    sendOnSignIn: true,
-    autoSignInAfterVerification: true,
-    expiresIn: 60 * 60,
+    sendOnSignIn: false,
+    autoSignInAfterVerification: false,
+    expiresIn: 60 * 60, // 1 hour
   },
 
   socialProviders: {
@@ -90,6 +91,13 @@ export const auth = betterAuth({
     },
   },
 
+  plugins: [
+    admin({
+      defaultRole: "user",
+      adminRoles: ["admin"],
+    }),
+  ],
+
   databaseHooks: {
     user: {
       create: {
@@ -98,34 +106,17 @@ export const auth = betterAuth({
             { userId: user.id },
             {
               $setOnInsert: {
-                role: "user",
-                isActive: true,
+                userId: user.id,
               },
             },
-            { upsert: true },
+            { upsert: true }
           );
-        },
-      },
-    },
-    session: {
-      create: {
-        before: async (session) => {
-          const profile = await UserProfile.findOne({
-            userId: session.userId,
-          }).lean();
-
-          if (profile?.isActive === false) {
-            throw APIError.from("FORBIDDEN", {
-              message: "Your account has been deactivated",
-              code: "ACCOUNT_DEACTIVATED",
-            });
-          }
         },
       },
     },
   },
 
   session: {
-    expiresIn: 60 * 60 * 24 * 7,
+    expiresIn: 60 * 60 * 24 * 7, // 7 days
   },
 });
