@@ -38,7 +38,7 @@ const server = app.listen(PORT, () => {
   console.log(`   - JWT: ${process.env.JWT_SECRET ? 'Configured ✅' : 'Missing ⚠️'}`);
   console.log(`   - Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Configured ✅' : 'Missing ⚠️'}`);
   console.log(`\n✨ Ready to accept requests\n`);
-});
+}); 
 
 process.on('unhandledRejection', (err) => {
   console.error('UNHANDLED REJECTION! 💥 Shutting down...');
