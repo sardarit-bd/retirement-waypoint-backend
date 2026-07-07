@@ -29,7 +29,9 @@ export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_BASE_URL || "http://localhost:5000",
   basePath: "/api/auth",
 
-  trustedOrigins: [process.env.FRONTEND_URL || "http://localhost:3000"],
+  trustedOrigins: (process.env.ALLOWED_ORIGINS || "http://localhost:3000")
+    .split(",")
+    .map((origin) => origin.trim()),
 
   emailAndPassword: {
     enabled: true,
@@ -109,7 +111,7 @@ export const auth = betterAuth({
                 userId: user.id,
               },
             },
-            { upsert: true }
+            { upsert: true },
           );
         },
       },
