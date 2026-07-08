@@ -176,7 +176,7 @@ class AuthServiceClass {
   }
 
   // Resend verification email
-  async resendVerificationEmail(email) {
+  async resendVerificationEmail(email, requestOrigin) {
     const user = await this.getUserByEmail(email);
 
     if (!user) {
@@ -189,26 +189,33 @@ class AuthServiceClass {
 
     // Generate new verification token using Better Auth
     const { auth } = await import("../../config/betterAuth.js");
+    const origin = new URL(requestOrigin);
 
     const token = await auth.api.generateEmailVerificationToken({
       body: {
         email: user.email,
       },
+      headers: new Headers({
+        host: origin.host,
+        "x-forwarded-host": origin.host,
+        "x-forwarded-proto": origin.protocol.slice(0, -1),
+      }),
     });
 
     // Send verification email
-    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+    const verificationUrl = new URL("/verify-email", origin);
+    verificationUrl.searchParams.set("token", token);
 
     const { sendEmail } = await import("../../config/mailer.js");
     await sendEmail({
       to: user.email,
       subject: "Verify your email address",
-      text: `Verify your email: ${verificationUrl}`,
+      text: `Verify your email: ${verificationUrl.href}`,
       html: `
           <h2>Verify your email</h2>
           <p>Hello ${user.name},</p>
           <p>Click the button below to verify your email address.</p>
-          <a href="${verificationUrl}" style="display:inline-block;padding:12px 24px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Verify Email</a>
+          <a href="${verificationUrl.href}" style="display:inline-block;padding:12px 24px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Verify Email</a>
           <p>This link expires in one hour.</p>
         `,
     });
@@ -217,18 +224,24 @@ class AuthServiceClass {
   }
 
   // Verify email token
-  async verifyEmailToken(token) {
+  async verifyEmailToken(token, requestOrigin) {
     if (!token) {
       throw new ApiError(400, "Verification token is required");
     }
 
     const { auth } = await import("../../config/betterAuth.js");
+    const origin = new URL(requestOrigin);
 
     try {
       const result = await auth.api.verifyEmail({
-        body: {
+        query: {
           token,
         },
+        headers: new Headers({
+          host: origin.host,
+          "x-forwarded-host": origin.host,
+          "x-forwarded-proto": origin.protocol.slice(0, -1),
+        }),
       });
 
       return result;

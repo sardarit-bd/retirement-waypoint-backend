@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import { AuthRoutes } from './modules/auth/auth.routes.js';
 import apiRoutes from './routes/index.js';
 import errorMiddleware from './middleware/errorMiddleware.js';
+import { isAllowedOrigin } from './config/origins.js';
 
 dotenv.config();
 
@@ -18,12 +19,6 @@ app.use(morgan('dev'));
 // =========================
 // CORS Configuration
 // =========================
-const allowedOrigins = (
-  process.env.ALLOWED_ORIGINS || 'http://localhost:3000'
-)
-  .split(',')
-  .map(origin => origin.trim());
-
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -32,7 +27,7 @@ app.use(
         return callback(null, true);
       }
 
-      if (allowedOrigins.includes(origin)) {
+      if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
 

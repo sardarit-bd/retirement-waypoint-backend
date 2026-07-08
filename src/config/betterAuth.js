@@ -5,6 +5,7 @@ import { MongoClient } from "mongodb";
 import dotenv from "dotenv";
 import { UserProfile } from "../modules/auth/auth.model.js";
 import { sendEmail } from "./mailer.js";
+import { authAllowedHosts } from "./origins.js";
 
 dotenv.config();
 
@@ -20,56 +21,21 @@ const mongoClient = new MongoClient(process.env.MONGODB_URI);
 await mongoClient.connect();
 console.log("✅ MongoDB connected for Better Auth");
 
-const parseOrigins = (...values) =>
-  values
-    .filter(Boolean)
-    .flatMap((value) => value.split(","))
-    .map((origin) => origin.trim())
-    .map((origin) => {
-      try {
-        return new URL(origin).origin;
-      } catch {
-        return origin;
-      }
-    })
-    .filter(Boolean);
-
-const authBaseURL =
-  process.env.BETTER_AUTH_PUBLIC_URL ||
-  process.env.FRONTEND_URL ||
-  process.env.BETTER_AUTH_BASE_URL ||
-  "http://localhost:5000";
-
-const trustedOrigins = [
-  ...new Set(
-    parseOrigins(
-      process.env.ALLOWED_ORIGINS || "http://localhost:3000",
-      process.env.FRONTEND_URL,
-      process.env.BETTER_AUTH_BASE_URL,
-      authBaseURL,
-    ),
-  ),
-];
+if (!process.env.BETTER_AUTH_SECRET) {
+  throw new Error("BETTER_AUTH_SECRET is not configured");
+}
 
 // Better Auth configuration
 export const auth = betterAuth({
   database: mongodbAdapter(mongoClient.db()),
-  secret:
-    process.env.BETTER_AUTH_SECRET ||
-    "your-secret-key-at-least-32-characters-long!!",
-  baseURL: authBaseURL,
+  secret: process.env.BETTER_AUTH_SECRET,
+  baseURL: {
+    allowedHosts: authAllowedHosts,
+    protocol: "auto",
+  },
   basePath: "/api/auth",
-
-  trustedOrigins,
-
-  // OAuth state validation requires the sign-in and callback requests to use
-  // the same browser-visible auth origin. For the Next.js proxy flow, point
-  // BETTER_AUTH_PUBLIC_URL or FRONTEND_URL at the frontend origin.
   advanced: {
-    defaultCookieAttributes: {
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      secure: process.env.NODE_ENV === "production",
-    },
+    trustedProxyHeaders: true,
   },
 
   emailAndPassword: {

@@ -3,6 +3,7 @@ import sendResponse from "../../utils/sendResponse.js";
 import AuthService from "./auth.service.js";
 import { auth } from "../../config/betterAuth.js";
 import { toNodeHandler } from "better-auth/node";
+import { getRequestOrigin } from "../../config/origins.js";
 
 const getMe = catchAsync(async (req, res) => {
   const user = req.user;
@@ -173,7 +174,10 @@ const resendVerification = catchAsync(async (req, res) => {
     });
   }
 
-  const result = await AuthService.resendVerificationEmail(email);
+  const result = await AuthService.resendVerificationEmail(
+    email,
+    getRequestOrigin(req),
+  );
 
   sendResponse(res, {
     success: true,
@@ -194,7 +198,10 @@ const verifyEmail = catchAsync(async (req, res) => {
     });
   }
 
-  const result = await AuthService.verifyEmailToken(token);
+  const result = await AuthService.verifyEmailToken(
+    token,
+    getRequestOrigin(req),
+  );
 
   sendResponse(res, {
     success: true,
