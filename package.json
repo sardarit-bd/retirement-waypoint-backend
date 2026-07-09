@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "migrate:auth-principal": "node src/scripts/migrate-auth-principal.js"
+    "migrate:auth-principal": "node src/scripts/migrate-auth-principal.js",
+    "seed:assessments": "node src/assessment.seeder.js"
   },
   "dependencies": {
     "better-auth": "^1.6.20",

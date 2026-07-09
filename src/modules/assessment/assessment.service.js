@@ -1,514 +1,250 @@
-import mongoose from "mongoose";
-import { AssessmentType } from "./assessmentType.model.js";
-import { AssessmentPage } from "./assessmentPage.model.js";
-import { AssessmentSection } from "./assessmentSection.model.js";
-import { Question } from "./question.model.js";
-import { QuestionOption } from "./questionOption.model.js";
-import { ResultRange } from "./resultRange.model.js";
-import { Recommendation } from "./recommendation.model.js";
-import { AssessmentSubmission } from "./assessmentSubmission.model.js";
-import ApiError from "../../utils/ApiError.js";
+import AssessmentRepository from './assessment.repository.js';
+import ApiError from '../../utils/ApiError.js';
 
-class AssessmentServiceClass {
-  // ==================== GENERIC HELPERS ====================
-  async getPaginatedData(Model, filter, query = {}) {
-    const {
-      page = 1,
-      limit = 20,
-      sortBy = "displayOrder",
-      sortOrder = "asc",
-    } = query;
+/**
+ * Generate a slug from text (only used once during creation)
+ */
+const generateSlug = (text) => {
+  if (!text) return 'untitled';
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+};
 
-    const pageNumber = Math.max(Number(page) || 1, 1);
-    const limitNumber = Math.min(Math.max(Number(limit) || 20, 1), 100);
-    const skip = (pageNumber - 1) * limitNumber;
-
-    const sort = {};
-    sort[sortBy] = sortOrder === "asc" ? 1 : -1;
-
-    const [data, total] = await Promise.all([
-      Model.find(filter).sort(sort).skip(skip).limit(limitNumber),
-      Model.countDocuments(filter),
-    ]);
-
-    return {
-      data,
-      pagination: {
-        page: pageNumber,
-        limit: limitNumber,
-        total,
-        totalPages: Math.ceil(total / limitNumber),
-        hasNextPage: pageNumber * limitNumber < total,
-        hasPrevPage: pageNumber > 1,
-      },
-    };
-  }
-
-  // ==================== ASSESSMENT TYPE ====================
-  async createAssessmentType(data) {
-    const existing = await AssessmentType.findOne({ slug: data.slug });
-    if (existing) {
-      throw new ApiError(400, "Assessment type with this slug already exists");
+class AssessmentService {
+  /**
+   * Create a new assessment
+   */
+  async createAssessment(data) {
+    // Generate slug if not provided
+    if (!data.slug) {
+      data.slug = generateSlug(data.hero?.title || 'untitled');
     }
-    return AssessmentType.create(data);
-  }
 
-  async updateAssessmentType(id, data) {
-    if (data.slug) {
-      const existing = await AssessmentType.findOne({
-        slug: data.slug,
-        _id: { $ne: id },
-      });
-      if (existing) {
-        throw new ApiError(400, "Assessment type with this slug already exists");
-      }
+    // Ensure slug is unique
+    const slugExists = await AssessmentRepository.slugExists(data.slug);
+    if (slugExists) {
+      data.slug = `${data.slug}-${Date.now()}`;
     }
-    return AssessmentType.findByIdAndUpdate(id, { $set: data }, { new: true });
-  }
 
-  async deleteAssessmentType(id) {
-    const pages = await AssessmentPage.find({ assessmentTypeId: id });
-    if (pages.length > 0) {
-      throw new ApiError(400, "Cannot delete assessment type with existing pages");
+    // Set default status
+    if (!data.status) {
+      data.status = 'draft';
     }
-    return AssessmentType.findByIdAndDelete(id);
+
+    // Remove any deletedAt field from creation
+    delete data.deletedAt;
+
+    return await AssessmentRepository.create(data);
   }
 
-  async getAssessmentTypes(query) {
-    const filter = {};
-    if (query.isPublished !== undefined) {
-      filter.isPublished = query.isPublished === "true";
+  /**
+   * Get assessment by ID (admin - includes drafts, excludes soft deleted)
+   */
+  async getAssessmentById(id, includeDeleted = false) {
+    const assessment = await AssessmentRepository.findById(id, includeDeleted);
+    if (!assessment) {
+      throw new ApiError(404, 'Assessment not found');
     }
-    return this.getPaginatedData(AssessmentType, filter, query);
+    return assessment;
   }
 
-  async getAssessmentTypeById(id) {
-    const type = await AssessmentType.findById(id);
-    if (!type) {
-      throw new ApiError(404, "Assessment type not found");
+  /**
+   * Get assessment by slug (admin - includes drafts, excludes soft deleted)
+   */
+  async getAssessmentBySlug(slug, includeDeleted = false) {
+    const assessment = await AssessmentRepository.findBySlug(slug, includeDeleted);
+    if (!assessment) {
+      throw new ApiError(404, 'Assessment not found');
     }
-    return type;
+    return assessment;
   }
 
-  // ==================== ASSESSMENT PAGE ====================
-  async createAssessmentPage(data) {
-    const existing = await AssessmentPage.findOne({ slug: data.slug });
-    if (existing) {
-      throw new ApiError(400, "Assessment page with this slug already exists");
+  /**
+   * Get published assessment by slug (public)
+   */
+  async getPublicAssessmentBySlug(slug) {
+    const assessment = await AssessmentRepository.findPublishedBySlug(slug);
+    if (!assessment) {
+      throw new ApiError(404, 'Assessment not found');
     }
-    return AssessmentPage.create(data);
+    return assessment;
   }
 
-  async updateAssessmentPage(id, data) {
-    if (data.slug) {
-      const existing = await AssessmentPage.findOne({
-        slug: data.slug,
-        _id: { $ne: id },
-      });
-      if (existing) {
-        throw new ApiError(400, "Assessment page with this slug already exists");
-      }
-    }
-    return AssessmentPage.findByIdAndUpdate(id, { $set: data }, { new: true });
-  }
-
-  async deleteAssessmentPage(id) {
-    const sections = await AssessmentSection.find({ assessmentPageId: id });
-    if (sections.length > 0) {
-      throw new ApiError(400, "Cannot delete assessment page with existing sections");
-    }
-    return AssessmentPage.findByIdAndDelete(id);
-  }
-
-  async getAssessmentPages(query) {
-    const filter = {};
-    if (query.assessmentTypeId) filter.assessmentTypeId = query.assessmentTypeId;
-    if (query.isPublished !== undefined) {
-      filter.isPublished = query.isPublished === "true";
-    }
-    return this.getPaginatedData(AssessmentPage, filter, query);
-  }
-
-  async getAssessmentPageById(id) {
-    const page = await AssessmentPage.findById(id);
-    if (!page) {
-      throw new ApiError(404, "Assessment page not found");
-    }
-    return page;
-  }
-
-  // ==================== ASSESSMENT SECTION ====================
-  async createAssessmentSection(data) {
-    return AssessmentSection.create(data);
-  }
-
-  async updateAssessmentSection(id, data) {
-    return AssessmentSection.findByIdAndUpdate(id, { $set: data }, { new: true });
-  }
-
-  async deleteAssessmentSection(id) {
-    const questions = await Question.find({ sectionId: id });
-    if (questions.length > 0) {
-      throw new ApiError(400, "Cannot delete section with existing questions");
-    }
-    return AssessmentSection.findByIdAndDelete(id);
-  }
-
-  async getAssessmentSections(query) {
-    const filter = {};
-    if (query.assessmentPageId) filter.assessmentPageId = query.assessmentPageId;
-    if (query.isActive !== undefined) {
-      filter.isActive = query.isActive === "true";
-    }
-    return this.getPaginatedData(AssessmentSection, filter, query);
-  }
-
-  async getAssessmentSectionById(id) {
-    const section = await AssessmentSection.findById(id);
-    if (!section) {
-      throw new ApiError(404, "Assessment section not found");
-    }
-    return section;
-  }
-
-  // ==================== QUESTION ====================
-  async createQuestion(data) {
-    return Question.create(data);
-  }
-
-  async updateQuestion(id, data) {
-    return Question.findByIdAndUpdate(id, { $set: data }, { new: true });
-  }
-
-  async deleteQuestion(id) {
-    await QuestionOption.deleteMany({ questionId: id });
-    return Question.findByIdAndDelete(id);
-  }
-
-  async getQuestions(query) {
-    const filter = {};
-    if (query.sectionId) filter.sectionId = query.sectionId;
-    if (query.isActive !== undefined) {
-      filter.isActive = query.isActive === "true";
-    }
-    return this.getPaginatedData(Question, filter, query);
-  }
-
-  async getQuestionById(id) {
-    const question = await Question.findById(id);
-    if (!question) {
-      throw new ApiError(404, "Question not found");
-    }
-    return question;
-  }
-
-  // ==================== QUESTION OPTION ====================
-  async createQuestionOption(data) {
-    return QuestionOption.create(data);
-  }
-
-  async updateQuestionOption(id, data) {
-    return QuestionOption.findByIdAndUpdate(id, { $set: data }, { new: true });
-  }
-
-  async deleteQuestionOption(id) {
-    return QuestionOption.findByIdAndDelete(id);
-  }
-
-  async getQuestionOptions(questionId) {
-    return QuestionOption.find({ questionId, isActive: true })
-      .sort({ displayOrder: 1 });
-  }
-
-  // ==================== RESULT RANGE ====================
-  async createResultRange(data) {
-    return ResultRange.create(data);
-  }
-
-  async updateResultRange(id, data) {
-    return ResultRange.findByIdAndUpdate(id, { $set: data }, { new: true });
-  }
-
-  async deleteResultRange(id) {
-    await Recommendation.deleteMany({ resultRangeId: id });
-    return ResultRange.findByIdAndDelete(id);
-  }
-
-  async getResultRanges(query) {
-    const filter = {};
-    if (query.assessmentPageId) filter.assessmentPageId = query.assessmentPageId;
-    if (query.isActive !== undefined) {
-      filter.isActive = query.isActive === "true";
-    }
-    return this.getPaginatedData(ResultRange, filter, query);
-  }
-
-  async getResultRangeById(id) {
-    const range = await ResultRange.findById(id);
-    if (!range) {
-      throw new ApiError(404, "Result range not found");
-    }
-    return range;
-  }
-
-  async getResultRangeByScore(assessmentPageId, score) {
-    return ResultRange.findOne({
-      assessmentPageId,
-      minScore: { $lte: score },
-      maxScore: { $gte: score },
-      isActive: true,
+  /**
+   * List all assessments (admin)
+   */
+  async listAssessments({ page, limit, status, search, includeDeleted = false }) {
+    return await AssessmentRepository.findAll({
+      page,
+      limit,
+      status,
+      search,
+      includeDeleted,
     });
   }
 
-  // ==================== RECOMMENDATION ====================
-  async createRecommendation(data) {
-    return Recommendation.create(data);
+  /**
+   * List soft deleted assessments (admin)
+   */
+  async listDeleted({ page, limit }) {
+    return await AssessmentRepository.findDeleted({ page, limit });
   }
 
-  async updateRecommendation(id, data) {
-    return Recommendation.findByIdAndUpdate(id, { $set: data }, { new: true });
+  /**
+   * List published assessments (public)
+   */
+  async listPublishedAssessments({ page, limit }) {
+    return await AssessmentRepository.findPublished({ page, limit });
   }
 
-  async deleteRecommendation(id) {
-    return Recommendation.findByIdAndDelete(id);
-  }
+  /**
+   * Update assessment
+   */
+  async updateAssessment(id, updateData) {
+    // Check if assessment exists
+    const existing = await AssessmentRepository.findById(id);
+    if (!existing) {
+      throw new ApiError(404, 'Assessment not found');
+    }
 
-  async getRecommendations(resultRangeId) {
-    return Recommendation.find({
-      resultRangeId,
-      isActive: true,
-    }).sort({ priority: 1, displayOrder: 1 });
-  }
-
-  // ==================== ASSESSMENT SUBMISSION ====================
-  async submitAssessment(userId, data) {
-    const { assessmentPageId, answers } = data;
-
-    // Get all sections
-    const sections = await AssessmentSection.find({
-      assessmentPageId,
-      isActive: true,
-    }).sort({ displayOrder: 1 });
-
-    // Calculate scores
-    const sectionScores = {};
-    let totalScore = 0;
-    let totalQuestions = 0;
-
-    for (const section of sections) {
-      const questions = await Question.find({
-        sectionId: section._id,
-        isActive: true,
-      }).sort({ displayOrder: 1 });
-
-      let sectionTotal = 0;
-      let sectionCount = 0;
-
-      for (const question of questions) {
-        const answer = answers[question._id.toString()];
-        if (answer !== undefined && answer !== null && answer !== "") {
-          if (question.type === "text" || question.type === "textarea") {
-            // Text answers don't contribute to score
-            continue;
-          }
-          // Get options to find score
-          if (Array.isArray(answer)) {
-            // Multiple choice
-            const options = await QuestionOption.find({
-              questionId: question._id,
-              _id: { $in: answer },
-            });
-            const maxScore = options.reduce((sum, opt) => sum + opt.score, 0);
-            sectionTotal += maxScore;
-            sectionCount++;
-          } else {
-            // Single choice or scale
-            const option = await QuestionOption.findOne({
-              questionId: question._id,
-              value: answer,
-            });
-            if (option) {
-              sectionTotal += option.score || 0;
-              sectionCount++;
-            }
-          }
+    // Prevent slug duplication if updating slug
+    if (updateData.slug) {
+      // Check if slug is being changed
+      if (updateData.slug !== existing.slug) {
+        const slugExists = await AssessmentRepository.slugExists(updateData.slug, id);
+        if (slugExists) {
+          throw new ApiError(400, 'Slug already exists');
         }
       }
-
-      const avgScore = sectionCount > 0 ? (sectionTotal / sectionCount) : 0;
-      sectionScores[section.key] = Math.round(avgScore);
-      totalScore += avgScore;
-      totalQuestions++;
     }
 
-    const overallScore = totalQuestions > 0 ? Math.round((totalScore / totalQuestions) / 5 * 100) : 0;
+    // NEVER auto-update slug from title - slug must remain stable
 
-    // Find result range
-    const resultRange = await this.getResultRangeByScore(assessmentPageId, overallScore);
-    let resultId = resultRange?._id || null;
+    // Remove deletedAt from update data (should not be updated directly)
+    delete updateData.deletedAt;
 
-    // Get recommendations
-    let recommendations = [];
-    if (resultRange) {
-      recommendations = await this.getRecommendations(resultRange._id);
+    const assessment = await AssessmentRepository.updateById(id, updateData);
+    if (!assessment) {
+      throw new ApiError(404, 'Assessment not found');
+    }
+    return assessment;
+  }
+
+  /**
+   * Soft delete assessment
+   */
+  async deleteAssessment(id, deletedBy = null) {
+    const assessment = await AssessmentRepository.softDeleteById(id, deletedBy);
+    if (!assessment) {
+      throw new ApiError(404, 'Assessment not found');
+    }
+    return assessment;
+  }
+
+  /**
+   * Restore a soft deleted assessment
+   */
+  async restoreAssessment(id) {
+    const assessment = await AssessmentRepository.restoreById(id);
+    if (!assessment) {
+      throw new ApiError(404, 'Assessment not found');
+    }
+    return assessment;
+  }
+
+  /**
+   * Hard delete assessment (use with caution - only for cleanup)
+   */
+  async hardDeleteAssessment(id) {
+    // Check if assessment exists
+    const existing = await AssessmentRepository.findById(id, true);
+    if (!existing) {
+      throw new ApiError(404, 'Assessment not found');
     }
 
-    // Create submission
-    const submission = await AssessmentSubmission.create({
-      userId,
-      assessmentPageId,
-      answers,
-      sectionScores,
-      overallScore,
-      resultId,
-      recommendations: recommendations.map(r => r._id),
-      completedAt: new Date(),
-      isCompleted: true,
+    // Check if assessment has submissions (prevent orphaned data)
+    // This will be implemented when Submission module is added
+
+    return await AssessmentRepository.hardDeleteById(id);
+  }
+
+  /**
+   * Duplicate assessment
+   */
+  async duplicateAssessment(id) {
+    const original = await AssessmentRepository.findById(id);
+    if (!original) {
+      throw new ApiError(404, 'Assessment not found');
+    }
+
+    // Convert to plain object and remove id and timestamps
+    const duplicate = { ...original };
+    delete duplicate._id;
+    delete duplicate.createdAt;
+    delete duplicate.updatedAt;
+    delete duplicate.__v;
+    delete duplicate.deletedAt;
+    delete duplicate.deletedBy;
+
+    // Generate new slug
+    const baseSlug = `${original.slug}-copy`;
+    let newSlug = baseSlug;
+    let counter = 1;
+    while (await AssessmentRepository.slugExists(newSlug)) {
+      newSlug = `${baseSlug}-${counter}`;
+      counter++;
+    }
+    duplicate.slug = newSlug;
+    duplicate.status = 'draft';
+
+    // Add " (Copy)" to title
+    duplicate.hero.title = `${duplicate.hero.title} (Copy)`;
+    duplicate.introduction.title = `${duplicate.introduction.title} (Copy)`;
+
+    return await AssessmentRepository.create(duplicate);
+  }
+
+  /**
+   * Publish assessment
+   */
+  async publishAssessment(id) {
+    const assessment = await AssessmentRepository.updateById(id, {
+      status: 'published',
     });
-
-    return {
-      submission,
-      resultRange,
-      recommendations,
-      sectionScores,
-      overallScore,
-    };
+    if (!assessment) {
+      throw new ApiError(404, 'Assessment not found');
+    }
+    return assessment;
   }
 
-  async getUserSubmissions(userId, query = {}) {
-    const filter = { userId };
-    if (query.assessmentPageId) filter.assessmentPageId = query.assessmentPageId;
-
-    return this.getPaginatedData(AssessmentSubmission, filter, query);
-  }
-
-  async getSubmissionById(submissionId, userId) {
-    const submission = await AssessmentSubmission.findById(submissionId)
-      .populate("assessmentPageId")
-      .populate("resultId")
-      .populate("recommendations");
-
-    if (!submission) {
-      throw new ApiError(404, "Submission not found");
-    }
-
-    if (submission.userId !== userId) {
-      throw new ApiError(403, "You don't have permission to view this submission");
-    }
-
-    return submission;
-  }
-
-  // ==================== PUBLIC API ====================
-  async getPublicAssessment(slug) {
-    const page = await AssessmentPage.findOne({
-      slug,
-      isPublished: true,
-    }).populate("assessmentTypeId");
-
-    if (!page) {
-      throw new ApiError(404, "Assessment not found");
-    }
-
-    const sections = await AssessmentSection.find({
-      assessmentPageId: page._id,
-      isActive: true,
-    }).sort({ displayOrder: 1 });
-
-    const sectionsWithQuestions = await Promise.all(
-      sections.map(async (section) => {
-        const questions = await Question.find({
-          sectionId: section._id,
-          isActive: true,
-        }).sort({ displayOrder: 1 });
-
-        const questionsWithOptions = await Promise.all(
-          questions.map(async (question) => {
-            const options = await QuestionOption.find({
-              questionId: question._id,
-              isActive: true,
-            }).sort({ displayOrder: 1 });
-
-            return {
-              ...question.toObject(),
-              options,
-            };
-          })
-        );
-
-        return {
-          ...section.toObject(),
-          questions: questionsWithOptions,
-        };
-      })
-    );
-
-    return {
-      page,
-      sections: sectionsWithQuestions,
-    };
-  }
-
-  async getPublicAssessmentResult(submissionId) {
-    const submission = await AssessmentSubmission.findById(submissionId)
-      .populate("assessmentPageId")
-      .populate("resultId")
-      .populate("recommendations");
-
-    if (!submission) {
-      throw new ApiError(404, "Submission not found");
-    }
-
-    return submission;
-  }
-
-  // ==================== ADMIN ANALYTICS ====================
-  async getAssessmentAnalytics(query = {}) {
-    const { assessmentPageId, dateFrom, dateTo } = query;
-
-    const filter = {};
-    if (assessmentPageId) filter.assessmentPageId = assessmentPageId;
-    if (dateFrom || dateTo) {
-      filter.completedAt = {};
-      if (dateFrom) filter.completedAt.$gte = new Date(dateFrom);
-      if (dateTo) filter.completedAt.$lte = new Date(dateTo);
-    }
-
-    const submissions = await AssessmentSubmission.find(filter);
-
-    const total = submissions.length;
-    const completed = submissions.filter(s => s.isCompleted).length;
-    const avgScore = total > 0
-      ? Math.round(submissions.reduce((sum, s) => sum + s.overallScore, 0) / total)
-      : 0;
-
-    // Score distribution
-    const distribution = {
-      "0-20": 0,
-      "21-40": 0,
-      "41-60": 0,
-      "61-80": 0,
-      "81-100": 0,
-    };
-
-    submissions.forEach(s => {
-      const score = s.overallScore;
-      if (score <= 20) distribution["0-20"]++;
-      else if (score <= 40) distribution["21-40"]++;
-      else if (score <= 60) distribution["41-60"]++;
-      else if (score <= 80) distribution["61-80"]++;
-      else distribution["81-100"]++;
+  /**
+   * Archive assessment
+   */
+  async archiveAssessment(id) {
+    const assessment = await AssessmentRepository.updateById(id, {
+      status: 'archived',
     });
+    if (!assessment) {
+      throw new ApiError(404, 'Assessment not found');
+    }
+    return assessment;
+  }
 
-    return {
-      totalSubmissions: total,
-      completedSubmissions: completed,
-      averageScore: avgScore,
-      scoreDistribution: distribution,
-      submissions,
-    };
+  /**
+   * Get assessment statistics
+   */
+  async getStats() {
+    return await AssessmentRepository.getStats();
+  }
+
+  /**
+   * Get status counts
+   */
+  async getStatusCounts() {
+    return await AssessmentRepository.countByStatus();
   }
 }
 
-const AssessmentService = new AssessmentServiceClass();
-export default AssessmentService;
+export default new AssessmentService();

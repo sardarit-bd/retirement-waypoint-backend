@@ -1,258 +1,141 @@
-import express from "express";
-import { AssessmentController } from "./assessment.controller.js";
+import { Router } from 'express';
+import AssessmentController from './assessment.controller.js';
 import {
-  createAssessmentTypeValidation,
-  updateAssessmentTypeValidation,
-  getAssessmentTypesValidation,
-  createAssessmentPageValidation,
-  updateAssessmentPageValidation,
-  getAssessmentPagesValidation,
-  createAssessmentSectionValidation,
-  updateAssessmentSectionValidation,
-  getAssessmentSectionsValidation,
-  createQuestionValidation,
-  updateQuestionValidation,
-  getQuestionsValidation,
-  createQuestionOptionValidation,
-  updateQuestionOptionValidation,
-  createResultRangeValidation,
-  updateResultRangeValidation,
-  getResultRangesValidation,
-  createRecommendationValidation,
-  updateRecommendationValidation,
-  submitAssessmentValidation,
-  getSubmissionsValidation,
-  getPublicAssessmentValidation,
-  getPublicAssessmentResultsValidation,
-  getAssessmentAnalyticsValidation,
-  validate,
-} from "./assessment.validation.js";
-import { protect, restrictTo } from "../../middleware/authMiddleware.js";
+  createAssessmentValidation,
+  idParamValidation,
+  paginationQueryValidation,
+  slugParamValidation,
+  updateAssessmentValidation,
+} from './assessment.validation.js';
+import { protect, restrictTo } from '../../middleware/authMiddleware.js';
 
-const router = express.Router();
+// ============================
+// Validation Middleware (inline)
+// ============================
+const validate = (schema) => {
+  return async (req, res, next) => {
+    try {
+      if (schema.params) {
+        req.params = await schema.params.parseAsync(req.params);
+      }
+      if (schema.query) {
+        req.validatedQuery = await schema.query.parseAsync(req.query);
+      }
+      if (schema.body) {
+        req.body = await schema.body.parseAsync(req.body);
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
 
-// ==================== PUBLIC ROUTES ====================
-// Get assessment by slug
+const router = Router();
+
+/* ===========================
+   Public Routes
+=========================== */
+
 router.get(
-  "/public/:slug",
-  validate(getPublicAssessmentValidation),
-  AssessmentController.getPublicAssessment
+  '/public',
+  validate(paginationQueryValidation),
+  AssessmentController.listPublic
 );
 
-// Get assessment result by submission ID
 router.get(
-  "/public/result/:submissionId",
-  validate(getPublicAssessmentResultsValidation),
-  AssessmentController.getPublicAssessmentResult
+  '/public/:slug',
+  validate(slugParamValidation),
+  AssessmentController.getPublicBySlug
 );
 
-// ==================== USER ROUTES (Authenticated) ====================
+/* ===========================
+   Protected Admin Routes
+=========================== */
+
 router.use(protect);
+router.use(restrictTo('admin'));
 
-// Submit assessment
-router.post(
-  "/submit",
-  validate(submitAssessmentValidation),
-  AssessmentController.submitAssessment
-);
-
-// Get user submissions
+// List all assessments (with filters)
 router.get(
-  "/my-submissions",
-  validate(getSubmissionsValidation),
-  AssessmentController.getUserSubmissions
+  '/',
+  validate(paginationQueryValidation),
+  AssessmentController.list
 );
 
-// Get submission by ID
+// List soft deleted assessments
 router.get(
-  "/my-submissions/:id",
-  AssessmentController.getSubmissionById
+  '/deleted',
+  validate(paginationQueryValidation),
+  AssessmentController.listDeleted
 );
 
-// ==================== ADMIN ROUTES ====================
-router.use(restrictTo("admin"));
+// Get assessment statistics
+router.get('/stats', AssessmentController.getStats);
 
-// ==================== ASSESSMENT TYPE ====================
+// Get assessment by ID
+router.get(
+  '/:id',
+  validate(idParamValidation),
+  AssessmentController.getById
+);
+
+// Get assessment by slug (includes drafts)
+router.get(
+  '/slug/:slug',
+  validate(slugParamValidation),
+  AssessmentController.getBySlug
+);
+
+// Create assessment
 router.post(
-  "/admin/types",
-  validate(createAssessmentTypeValidation),
-  AssessmentController.createAssessmentType
+  '/',
+  validate(createAssessmentValidation),
+  AssessmentController.create
 );
+
+// Update assessment
 router.patch(
-  "/admin/types/:id",
-  validate(updateAssessmentTypeValidation),
-  AssessmentController.updateAssessmentType
-);
-router.delete(
-  "/admin/types/:id",
-  AssessmentController.deleteAssessmentType
-);
-router.get(
-  "/admin/types",
-  validate(getAssessmentTypesValidation),
-  AssessmentController.getAssessmentTypes
-);
-router.get(
-  "/admin/types/:id",
-  AssessmentController.getAssessmentTypeById
+  '/:id',
+  validate(idParamValidation),
+  validate(updateAssessmentValidation),
+  AssessmentController.update
 );
 
-// ==================== ASSESSMENT PAGE ====================
-router.post(
-  "/admin/pages",
-  validate(createAssessmentPageValidation),
-  AssessmentController.createAssessmentPage
+// Soft delete assessment
+router.delete(
+  '/:id',
+  validate(idParamValidation),
+  AssessmentController.delete
 );
+
+// Restore soft deleted assessment
 router.patch(
-  "/admin/pages/:id",
-  validate(updateAssessmentPageValidation),
-  AssessmentController.updateAssessmentPage
-);
-router.delete(
-  "/admin/pages/:id",
-  AssessmentController.deleteAssessmentPage
-);
-router.get(
-  "/admin/pages",
-  validate(getAssessmentPagesValidation),
-  AssessmentController.getAssessmentPages
-);
-router.get(
-  "/admin/pages/:id",
-  AssessmentController.getAssessmentPageById
+  '/:id/restore',
+  validate(idParamValidation),
+  AssessmentController.restore
 );
 
-// ==================== ASSESSMENT SECTION ====================
+// Duplicate assessment
 router.post(
-  "/admin/sections",
-  validate(createAssessmentSectionValidation),
-  AssessmentController.createAssessmentSection
+  '/:id/duplicate',
+  validate(idParamValidation),
+  AssessmentController.duplicate
 );
+
+// Publish assessment
 router.patch(
-  "/admin/sections/:id",
-  validate(updateAssessmentSectionValidation),
-  AssessmentController.updateAssessmentSection
-);
-router.delete(
-  "/admin/sections/:id",
-  AssessmentController.deleteAssessmentSection
-);
-router.get(
-  "/admin/sections",
-  validate(getAssessmentSectionsValidation),
-  AssessmentController.getAssessmentSections
-);
-router.get(
-  "/admin/sections/:id",
-  AssessmentController.getAssessmentSectionById
+  '/:id/publish',
+  validate(idParamValidation),
+  AssessmentController.publish
 );
 
-// ==================== QUESTION ====================
-router.post(
-  "/admin/questions",
-  validate(createQuestionValidation),
-  AssessmentController.createQuestion
-);
+// Archive assessment
 router.patch(
-  "/admin/questions/:id",
-  validate(updateQuestionValidation),
-  AssessmentController.updateQuestion
-);
-router.delete(
-  "/admin/questions/:id",
-  AssessmentController.deleteQuestion
-);
-router.get(
-  "/admin/questions",
-  validate(getQuestionsValidation),
-  AssessmentController.getQuestions
-);
-router.get(
-  "/admin/questions/:id",
-  AssessmentController.getQuestionById
+  '/:id/archive',
+  validate(idParamValidation),
+  AssessmentController.archive
 );
 
-// ==================== QUESTION OPTION ====================
-router.post(
-  "/admin/options",
-  validate(createQuestionOptionValidation),
-  AssessmentController.createQuestionOption
-);
-router.patch(
-  "/admin/options/:id",
-  validate(updateQuestionOptionValidation),
-  AssessmentController.updateQuestionOption
-);
-router.delete(
-  "/admin/options/:id",
-  AssessmentController.deleteQuestionOption
-);
-router.get(
-  "/admin/options/question/:questionId",
-  AssessmentController.getQuestionOptions
-);
-
-// ==================== RESULT RANGE ====================
-router.post(
-  "/admin/result-ranges",
-  validate(createResultRangeValidation),
-  AssessmentController.createResultRange
-);
-router.patch(
-  "/admin/result-ranges/:id",
-  validate(updateResultRangeValidation),
-  AssessmentController.updateResultRange
-);
-router.delete(
-  "/admin/result-ranges/:id",
-  AssessmentController.deleteResultRange
-);
-router.get(
-  "/admin/result-ranges",
-  validate(getResultRangesValidation),
-  AssessmentController.getResultRanges
-);
-router.get(
-  "/admin/result-ranges/:id",
-  AssessmentController.getResultRangeById
-);
-
-// ==================== RECOMMENDATION ====================
-router.post(
-  "/admin/recommendations",
-  validate(createRecommendationValidation),
-  AssessmentController.createRecommendation
-);
-router.patch(
-  "/admin/recommendations/:id",
-  validate(updateRecommendationValidation),
-  AssessmentController.updateRecommendation
-);
-router.delete(
-  "/admin/recommendations/:id",
-  AssessmentController.deleteRecommendation
-);
-router.get(
-  "/admin/recommendations/result-range/:resultRangeId",
-  AssessmentController.getRecommendations
-);
-
-// ==================== ADMIN SUBMISSIONS ====================
-router.get(
-  "/admin/submissions",
-  validate(getSubmissionsValidation),
-  AssessmentController.adminGetSubmissions
-);
-router.get(
-  "/admin/submissions/:id",
-  AssessmentController.adminGetSubmissionById
-);
-
-// ==================== ANALYTICS ====================
-router.get(
-  "/admin/analytics",
-  validate(getAssessmentAnalyticsValidation),
-  AssessmentController.getAssessmentAnalytics
-);
-
-export const AssessmentRoutes = router;
+export { router as AssessmentRoutes };
+export default router;
