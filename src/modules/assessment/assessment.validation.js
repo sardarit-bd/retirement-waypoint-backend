@@ -59,6 +59,7 @@ const assessmentSchema = z.object({
   introduction: z.object({
     badge: z.string().min(1, 'Badge is required'),
     title: z.string().min(1, 'Introduction title is required'),
+    author: z.string().default('David Allen, Ph.D.'),
     subtitle: z.string().min(1, 'Introduction subtitle is required'),
     description: z.string().min(1, 'Introduction description is required'),
     duration: z.string().default('10–12 min'),
@@ -108,6 +109,40 @@ const paginationQueryValidation = z.object({
   }),
 });
 
+// Submission validation
+const submissionAnswerSchema = z.object({
+  questionId: z.string().min(1),
+  domainId: z.string().min(1),
+  value: z.number().int().min(0),
+  score: z.number().int().min(0),
+});
+
+const submissionReflectionSchema = z.object({
+  domainId: z.string().min(1),
+  domainKey: z.string().min(1),
+  question: z.string().min(1),
+  answer: z.string().max(5000),
+});
+
+const submissionParticipantSchema = z.object({
+  name: z.string().min(1).max(100).trim(),
+  email: z.string().min(1).email().max(255).trim().toLowerCase(),
+});
+
+const submissionSchema = z.object({
+  participant: submissionParticipantSchema,
+  answers: z.array(submissionAnswerSchema).min(1),
+  reflections: z.array(submissionReflectionSchema).default([]),
+  userId: z.string().optional().nullable(),
+});
+
+export const submitAssessmentValidation = z.object({
+  params: z.object({
+    slug: z.string().min(1),
+  }),
+  body: submissionSchema,
+});
+
 export {
   createAssessmentValidation,
   updateAssessmentValidation,
@@ -115,4 +150,8 @@ export {
   idParamValidation,
   paginationQueryValidation,
   assessmentSchema,
+  submissionSchema,
+  submissionAnswerSchema,
+  submissionReflectionSchema,
+  submissionParticipantSchema,
 };

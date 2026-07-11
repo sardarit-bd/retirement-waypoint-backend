@@ -3,7 +3,7 @@ import { Purchase } from "../purchase/purchase.model.js";
 import { Order } from "../order/order.model.js";
 import { Review } from "../review/review.model.js";
 import { Book } from "../book/book.model.js";
-import { AssessmentSubmission } from "../assessment/assessmentSubmission.model.js";
+import { AssessmentSubmission } from "../assessment-submission/assessmentSubmission.model.js";
 
 class DashboardServiceClass {
   /**

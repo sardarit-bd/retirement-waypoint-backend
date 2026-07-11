@@ -8,11 +8,13 @@ import {
   updateAssessmentValidation,
 } from './assessment.validation.js';
 import { protect, restrictTo } from '../../middleware/authMiddleware.js';
+import assessmentSubmissionController from '../assessment-submission/assessment-submission.controller.js';
+import { submitAssessmentValidation } from '../assessment-submission/assessment-submission.validation.js';
 
 // ============================
 // Validation Middleware (inline)
 // ============================
-const validate = (schema) => {
+const validateSchema = (schema) => {
   return async (req, res, next) => {
     try {
       if (schema.params) {
@@ -37,16 +39,25 @@ const router = Router();
    Public Routes
 =========================== */
 
+// List published assessments
 router.get(
   '/public',
-  validate(paginationQueryValidation),
+  validateSchema(paginationQueryValidation),
   AssessmentController.listPublic
 );
 
+// Get published assessment by slug
 router.get(
   '/public/:slug',
-  validate(slugParamValidation),
+  validateSchema(slugParamValidation),
   AssessmentController.getPublicBySlug
+);
+
+// Submit assessment (public - no auth required)
+router.post(
+  '/:slug/submit',
+  validateSchema(submitAssessmentValidation),
+  assessmentSubmissionController.submit
 );
 
 /* ===========================
@@ -59,14 +70,14 @@ router.use(restrictTo('admin'));
 // List all assessments (with filters)
 router.get(
   '/',
-  validate(paginationQueryValidation),
+  validateSchema(paginationQueryValidation),
   AssessmentController.list
 );
 
 // List soft deleted assessments
 router.get(
   '/deleted',
-  validate(paginationQueryValidation),
+  validateSchema(paginationQueryValidation),
   AssessmentController.listDeleted
 );
 
@@ -76,64 +87,64 @@ router.get('/stats', AssessmentController.getStats);
 // Get assessment by ID
 router.get(
   '/:id',
-  validate(idParamValidation),
+  validateSchema(idParamValidation),
   AssessmentController.getById
 );
 
 // Get assessment by slug (includes drafts)
 router.get(
   '/slug/:slug',
-  validate(slugParamValidation),
+  validateSchema(slugParamValidation),
   AssessmentController.getBySlug
 );
 
 // Create assessment
 router.post(
   '/',
-  validate(createAssessmentValidation),
+  validateSchema(createAssessmentValidation),
   AssessmentController.create
 );
 
 // Update assessment
 router.patch(
   '/:id',
-  validate(idParamValidation),
-  validate(updateAssessmentValidation),
+  validateSchema(idParamValidation),
+  validateSchema(updateAssessmentValidation),
   AssessmentController.update
 );
 
 // Soft delete assessment
 router.delete(
   '/:id',
-  validate(idParamValidation),
+  validateSchema(idParamValidation),
   AssessmentController.delete
 );
 
 // Restore soft deleted assessment
 router.patch(
   '/:id/restore',
-  validate(idParamValidation),
+  validateSchema(idParamValidation),
   AssessmentController.restore
 );
 
 // Duplicate assessment
 router.post(
   '/:id/duplicate',
-  validate(idParamValidation),
+  validateSchema(idParamValidation),
   AssessmentController.duplicate
 );
 
 // Publish assessment
 router.patch(
   '/:id/publish',
-  validate(idParamValidation),
+  validateSchema(idParamValidation),
   AssessmentController.publish
 );
 
 // Archive assessment
 router.patch(
   '/:id/archive',
-  validate(idParamValidation),
+  validateSchema(idParamValidation),
   AssessmentController.archive
 );
 

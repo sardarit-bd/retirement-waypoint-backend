@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import mongoose from 'mongoose';
+import { nanoid } from 'nanoid';
 
 // Load environment variables FIRST
 const __filename = fileURLToPath(import.meta.url);
@@ -20,13 +21,16 @@ const scaleOptions = [
   { label: 'Strongly disagree', value: 1 },
 ];
 
-// Helper to create questions from items
+// ============================================================
+// Helper to create questions with permanent nanoid IDs
+// ============================================================
 const createQuestions = (items) => {
-  return items.map((text, index) => ({
-    id: `q${index + 1}`,
+  return items.map((text) => ({
+    id: `question_${nanoid(10)}`,
     text,
     required: true,
     options: scaleOptions.map((opt) => ({
+      id: `option_${nanoid(8)}`,
       label: opt.label,
       value: opt.value,
       score: opt.value,
@@ -34,10 +38,12 @@ const createQuestions = (items) => {
   }));
 };
 
-// Transform domains from source format
+// ============================================================
+// Transform domains with permanent IDs
+// ============================================================
 const transformDomains = (sourceDomains) => {
   return sourceDomains.map((domain) => ({
-    id: domain.key,
+    id: `domain_${nanoid(10)}`,
     key: domain.key,
     label: domain.label,
     description: domain.description,
@@ -49,7 +55,9 @@ const transformDomains = (sourceDomains) => {
   }));
 };
 
-// Assessment data - matches frontend exactly
+// ============================================================
+// Assessment data - matches frontend exactly with permanent IDs
+// ============================================================
 const assessments = {
   "pre-retiree": {
     slug: "pre-retiree",
@@ -131,7 +139,7 @@ const assessments = {
     results: {
       ranges: [
         {
-          id: "range1",
+          id: `range_${nanoid(8)}`,
           title: "Ready for Retirement",
           minScore: 80,
           maxScore: 100,
@@ -140,7 +148,7 @@ const assessments = {
           recommendations: [],
         },
         {
-          id: "range2",
+          id: `range_${nanoid(8)}`,
           title: "Getting Closer",
           minScore: 60,
           maxScore: 79,
@@ -149,7 +157,7 @@ const assessments = {
           recommendations: [],
         },
         {
-          id: "range3",
+          id: `range_${nanoid(8)}`,
           title: "Needs Attention",
           minScore: 0,
           maxScore: 59,
@@ -161,6 +169,7 @@ const assessments = {
     },
     status: "published",
   },
+
   "recent-retiree": {
     slug: "recent-retiree",
     hero: {
@@ -241,7 +250,7 @@ const assessments = {
     results: {
       ranges: [
         {
-          id: "range1",
+          id: `range_${nanoid(8)}`,
           title: "Thriving in Transition",
           minScore: 80,
           maxScore: 100,
@@ -250,7 +259,7 @@ const assessments = {
           recommendations: [],
         },
         {
-          id: "range2",
+          id: `range_${nanoid(8)}`,
           title: "Finding Your Way",
           minScore: 60,
           maxScore: 79,
@@ -259,7 +268,7 @@ const assessments = {
           recommendations: [],
         },
         {
-          id: "range3",
+          id: `range_${nanoid(8)}`,
           title: "Needs Attention",
           minScore: 0,
           maxScore: 59,
@@ -271,6 +280,7 @@ const assessments = {
     },
     status: "published",
   },
+
   "established-retiree": {
     slug: "established-retiree",
     hero: {
@@ -351,7 +361,7 @@ const assessments = {
     results: {
       ranges: [
         {
-          id: "range1",
+          id: `range_${nanoid(8)}`,
           title: "Thriving in Retirement",
           minScore: 80,
           maxScore: 100,
@@ -360,7 +370,7 @@ const assessments = {
           recommendations: [],
         },
         {
-          id: "range2",
+          id: `range_${nanoid(8)}`,
           title: "Finding Fulfillment",
           minScore: 60,
           maxScore: 79,
@@ -369,7 +379,7 @@ const assessments = {
           recommendations: [],
         },
         {
-          id: "range3",
+          id: `range_${nanoid(8)}`,
           title: "Needs Attention",
           minScore: 0,
           maxScore: 59,
@@ -383,9 +393,9 @@ const assessments = {
   },
 };
 
-/**
- * Seed assessments into the database
- */
+// ============================================================
+// Seed assessments into the database
+// ============================================================
 export async function seedAssessments() {
   console.log('🌱 Starting assessment seeder...');
 
@@ -419,9 +429,9 @@ export async function seedAssessments() {
   }
 }
 
-/**
- * Clear all assessments (use with caution)
- */
+// ============================================================
+// Clear all assessments (use with caution)
+// ============================================================
 export async function clearAssessments() {
   console.log('🗑️ Clearing all assessments...');
   const result = await Assessment.deleteMany({});
@@ -429,9 +439,9 @@ export async function clearAssessments() {
   return result;
 }
 
-/**
- * Connect to MongoDB using the existing configuration
- */
+// ============================================================
+// Connect to MongoDB using the existing configuration
+// ============================================================
 async function connectToDatabase() {
   console.log('🌱 Connecting to MongoDB...');
   
@@ -455,9 +465,9 @@ async function connectToDatabase() {
   }
 }
 
-/**
- * Disconnect from MongoDB
- */
+// ============================================================
+// Disconnect from MongoDB
+// ============================================================
 async function disconnectFromDatabase() {
   try {
     if (mongoose.connection.readyState !== 0) {
@@ -472,7 +482,6 @@ async function disconnectFromDatabase() {
 // ============================================================
 // Main execution
 // ============================================================
-// Use a simpler check that works in all environments
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isMainModule) {

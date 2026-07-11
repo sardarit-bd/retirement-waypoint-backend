@@ -1,20 +1,32 @@
 import mongoose from 'mongoose';
+import { nanoid } from 'nanoid';
 
 const optionSchema = new mongoose.Schema({
+  id: { type: String, default: () => nanoid(10) },
   label: { type: String, required: true },
   value: { type: Number, required: true },
   score: { type: Number, required: true },
 }, { _id: false });
 
 const questionSchema = new mongoose.Schema({
-  id: { type: String, required: true },
+  id: { 
+    type: String, 
+    default: () => `question_${nanoid(10)}`,
+    required: true,
+    unique: true,
+  },
   text: { type: String, required: true },
   required: { type: Boolean, default: true },
   options: [optionSchema],
 }, { _id: false });
 
 const domainSchema = new mongoose.Schema({
-  id: { type: String, required: true },
+  id: { 
+    type: String, 
+    default: () => `domain_${nanoid(10)}`,
+    required: true,
+    unique: true,
+  },
   key: { type: String, required: true },
   label: { type: String, required: true },
   description: { type: String, required: true },
@@ -55,6 +67,10 @@ const assessmentSchema = new mongoose.Schema({
   introduction: {
     badge: { type: String, required: true },
     title: { type: String, required: true },
+    author: {
+      type: String,
+      default: 'David Allen, Ph.D.',
+    },
     subtitle: { type: String, required: true },
     description: { type: String, required: true },
     duration: { type: String, default: '10–12 min' },
@@ -97,34 +113,34 @@ assessmentSchema.index({ status: 1, createdAt: -1 });
 // ============================
 
 // Domain count (computed, not stored)
-assessmentSchema.virtual('domainCount').get(function() {
+assessmentSchema.virtual('domainCount').get(function () {
   return this.domains?.length || 0;
 });
 
 // Total questions (computed, not stored)
-assessmentSchema.virtual('totalQuestions').get(function() {
+assessmentSchema.virtual('totalQuestions').get(function () {
   return this.domains?.reduce((total, domain) => {
     return total + (domain.questions?.length || 0);
   }, 0) || 0;
 });
 
 // Reflection count (computed, not stored)
-assessmentSchema.virtual('reflectionCount').get(function() {
+assessmentSchema.virtual('reflectionCount').get(function () {
   return this.domains?.filter(d => d.reflection?.question?.trim()).length || 0;
 });
 
 // Check if soft deleted
-assessmentSchema.virtual('isDeleted').get(function() {
+assessmentSchema.virtual('isDeleted').get(function () {
   return this.deletedAt !== null;
 });
 
 // Check if published
-assessmentSchema.virtual('isPublished').get(function() {
+assessmentSchema.virtual('isPublished').get(function () {
   return this.status === 'published' && this.deletedAt === null;
 });
 
 // Check if draft
-assessmentSchema.virtual('isDraft').get(function() {
+assessmentSchema.virtual('isDraft').get(function () {
   return this.status === 'draft' && this.deletedAt === null;
 });
 
