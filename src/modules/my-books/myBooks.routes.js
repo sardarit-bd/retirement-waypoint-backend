@@ -1,6 +1,13 @@
 import express from "express";
 import { protect, restrictTo } from "../../middleware/authMiddleware.js";
-import { downloadBookValidation, getDownloadLogsValidation, getDownloadStatsValidation, getMyBookByIdValidation, getMyBooksValidation, validate } from "./myBooks.validation.js";
+import { 
+  downloadBookValidation, 
+  getDownloadLogsValidation, 
+  getDownloadStatsValidation, 
+  getMyBookByIdValidation, 
+  getMyBooksValidation, 
+  validate 
+} from "./myBooks.validation.js";
 import { MyBooksController } from "./myBooks.controller.js";
 
 const router = express.Router();
@@ -29,6 +36,20 @@ router.get(
   "/:bookId/download",
   validate(downloadBookValidation),
   MyBooksController.downloadBook
+);
+
+// Get read URL for PDF viewer
+router.get(
+  "/:bookId/read",
+  validate(getMyBookByIdValidation),
+  MyBooksController.getReadUrl
+);
+
+// Stream PDF directly
+router.get(
+  "/:bookId/stream",
+  validate(getMyBookByIdValidation),
+  MyBooksController.streamPdf
 );
 
 // ==================== ADMIN ROUTES ====================

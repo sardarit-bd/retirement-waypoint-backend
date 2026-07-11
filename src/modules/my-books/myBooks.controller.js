@@ -1,8 +1,3 @@
-
-// import catchAsync from "../utils/catchAsync.js";
-// import sendResponse from "../utils/sendResponse.js";
-// import MyBooksService from "./myBooks.service.js";
-
 import catchAsync from "../../utils/catchAsync.js";
 import sendResponse from "../../utils/sendResponse.js";
 import MyBooksService from "../my-books/myBooks.service.js";
@@ -66,6 +61,54 @@ const downloadBook = catchAsync(async (req, res) => {
 });
 
 /**
+ * Get secure read URL for PDF viewer
+ * GET /api/my-books/:bookId/read
+ */
+const getReadUrl = catchAsync(async (req, res) => {
+  const { bookId } = req.params;
+  
+  const result = await MyBooksService.generateReadUrl(
+    req.user.id,
+    bookId
+  );
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "Read URL generated successfully",
+    data: result,
+  });
+});
+
+/**
+ * Stream PDF directly for reading
+ * GET /api/my-books/:bookId/stream
+ */
+const streamPdf = catchAsync(async (req, res) => {
+  const { bookId } = req.params;
+  
+  const ipAddress = req.ip || req.connection.remoteAddress || req.headers["x-forwarded-for"] || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
+
+  const result = await MyBooksService.streamBookPdf(
+    req.user.id,
+    bookId,
+    ipAddress,
+    userAgent
+  );
+
+  // Set headers for PDF streaming
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${result.fileName}"`);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+
+  // Fetch and stream the PDF
+  const response = await fetch(result.pdfUrl);
+  const buffer = await response.arrayBuffer();
+  res.send(Buffer.from(buffer));
+});
+
+/**
  * Admin: Get download logs
  * GET /api/admin/download-logs
  */
@@ -105,7 +148,9 @@ export const MyBooksController = {
   getMyBooks,
   getMyBookById,
   downloadBook,
+  getReadUrl,
+  streamPdf,
   adminGetDownloadLogs,
   adminGetDownloadStats,
-  hasPurchasedBook, // For Review Module later
+  hasPurchasedBook,
 };

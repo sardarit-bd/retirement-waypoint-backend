@@ -6,13 +6,6 @@ import { Order } from "../order/order.model.js";
 import { Invoice } from "../invoice/invoice.model.js";
 import ApiError from "../../utils/ApiError.js";
 import cloudinary from "../../config/cloudinary.js";
-// import { DownloadLog } from "../download/downloadLog.model.js";
-// import { Purchase } from "../modules/purchase/purchase.model.js";
-// import { Book } from "../modules/book/book.model.js";
-// import { Order } from "../modules/order/order.model.js";
-// import { Invoice } from "../modules/invoice/invoice.model.js";
-// import ApiError from "../utils/ApiError.js";
-// import cloudinary from "../config/cloudinary.js";
 
 class MyBooksServiceClass {
   /**
@@ -274,6 +267,86 @@ class MyBooksServiceClass {
       expiresIn: "15 minutes",
       bookTitle: book.title,
       fileName: `${book.slug}.pdf`,
+    };
+  }
+
+  /**
+   * Generate secure read URL for PDF viewer (longer expiry)
+   */
+  async generateReadUrl(userId, bookId) {
+    // Verify purchase
+    const purchase = await this.getPurchaseByUserAndBook(userId, bookId);
+    if (!purchase) {
+      throw new ApiError(403, "You don't have access to this book");
+    }
+
+    // Get book with PDF details
+    const book = await Book.findById(bookId).select("+pdfFilePublicId");
+    if (!book) {
+      throw new ApiError(404, "Book not found");
+    }
+
+    if (!book.pdfFilePublicId) {
+      throw new ApiError(500, "Book PDF not available");
+    }
+
+    // Generate signed URL with longer expiry for reading
+    const signedUrl = cloudinary.url(book.pdfFilePublicId, {
+      resource_type: "raw",
+      secure: true,
+      sign_url: true,
+      expires_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour
+    });
+
+    return {
+      pdfUrl: signedUrl,
+      expiresIn: "1 hour",
+      bookTitle: book.title,
+      bookId: book._id,
+      purchaseId: purchase._id,
+    };
+  }
+
+  /**
+   * Stream PDF directly (with tracking)
+   */
+  async streamBookPdf(userId, bookId, ipAddress, userAgent) {
+    // Verify purchase
+    const purchase = await this.getPurchaseByUserAndBook(userId, bookId);
+    if (!purchase) {
+      throw new ApiError(403, "You don't have access to this book");
+    }
+
+    // Get book with PDF details
+    const book = await Book.findById(bookId).select("+pdfFilePublicId");
+    if (!book) {
+      throw new ApiError(404, "Book not found");
+    }
+
+    if (!book.pdfFilePublicId) {
+      throw new ApiError(500, "Book PDF not available");
+    }
+
+    // Get the PDF URL (Cloudinary direct URL)
+    const pdfUrl = cloudinary.url(book.pdfFilePublicId, {
+      resource_type: "raw",
+      secure: true,
+    });
+
+    // Log download
+    await DownloadLog.create({
+      userId,
+      bookId,
+      purchaseId: purchase._id,
+      ipAddress,
+      userAgent,
+      downloadedAt: new Date(),
+    });
+
+    return {
+      pdfUrl,
+      fileName: `${book.slug}.pdf`,
+      purchaseId: purchase._id,
     };
   }
 
