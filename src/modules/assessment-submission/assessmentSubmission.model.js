@@ -20,7 +20,7 @@ const reflectionSchema = new mongoose.Schema({
   domainId: { type: String, required: true },
   domainKey: { type: String, required: true },
   question: { type: String, required: true },
-  answer: { type: String, default: '' },  // ✅ Changed from required to default empty
+  answer: { type: String, default: '' },
 }, { _id: false });
 
 const participantSchema = new mongoose.Schema({

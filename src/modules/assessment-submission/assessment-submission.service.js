@@ -137,6 +137,43 @@ class AssessmentSubmissionService {
   async getStats() {
     return await AssessmentSubmissionRepository.getStats();
   }
+
+  /**
+   * Get participants with filters (admin)
+   */
+  async getParticipants(query = {}) {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      assessmentSlug,
+      resultRange,
+      sortBy = 'newest',
+      dateFrom,
+      dateTo,
+    } = query;
+
+    const result = await AssessmentSubmissionRepository.findParticipants({
+      page,
+      limit,
+      search,
+      assessmentSlug,
+      resultRange,
+      sortBy,
+      dateFrom,
+      dateTo,
+    });
+
+    return result;
+  }
+
+  /**
+   * Get participant stats (admin)
+   */
+  async getParticipantStats() {
+    return await AssessmentSubmissionRepository.getParticipantStats();
+  }
+
 }
 
 export default new AssessmentSubmissionService();
