@@ -253,7 +253,51 @@ class AuthServiceClass {
     }
   }
 
-  async updateUserProfile(userId, updateData) {
+  async updateUserProfile(userId, updateData, requestOrigin) {
+    // --- Auth-level fields (name, email) live on the `user` collection ---
+    const currentUser = await this.getAuthUserById(userId);
+
+    if (!currentUser) {
+      throw new ApiError(404, "User not found");
+    }
+
+    const authUpdates = {};
+    let emailChanged = false;
+
+    if (updateData.name !== undefined) {
+      const trimmedName = updateData.name.trim();
+
+      if (!trimmedName) {
+        throw new ApiError(400, "Name cannot be empty");
+      }
+
+      if (trimmedName !== currentUser.name) {
+        authUpdates.name = trimmedName;
+      }
+    }
+
+    if (updateData.email !== undefined) {
+      const normalizedEmail = updateData.email.trim().toLowerCase();
+
+      if (normalizedEmail !== currentUser.email?.toLowerCase()) {
+        const existing = await this.getUserByEmail(normalizedEmail);
+
+        if (existing && existing.id !== userId) {
+          throw new ApiError(409, "Email is already in use by another account");
+        }
+
+        authUpdates.email = normalizedEmail;
+        authUpdates.emailVerified = false;
+        emailChanged = true;
+      }
+    }
+
+    const updatedAuthUser =
+      Object.keys(authUpdates).length > 0
+        ? await this.updateAuthUser(userId, authUpdates)
+        : currentUser;
+
+    // --- Profile-level fields (phone, bio, preferences) ---
     let profile = await UserProfile.findOne({ userId });
 
     if (!profile) {
@@ -279,13 +323,33 @@ class AuthServiceClass {
         updateData.preferences.notifications;
     }
 
-    const updatedProfile = await UserProfile.findOneAndUpdate(
-      { userId },
-      { $set: filteredData },
-      { new: true, runValidators: true },
-    );
+    const updatedProfile =
+      Object.keys(filteredData).length > 0
+        ? await UserProfile.findOneAndUpdate(
+            { userId },
+            { $set: filteredData },
+            { new: true, runValidators: true },
+          )
+        : profile;
 
-    return updatedProfile;
+    // Email changed — require re-verification of the new address
+    if (emailChanged) {
+      try {
+        await this.resendVerificationEmail(
+          updatedAuthUser.email,
+          requestOrigin,
+        );
+      } catch (error) {
+        console.warn(
+          `Failed to send verification email after email change: ${error.message}`,
+        );
+      }
+    }
+
+    return {
+      ...updatedAuthUser,
+      profile: this.getProfilePayload(updatedProfile),
+    };
   }
 
   async updateProfileImage(userId, file) {
