@@ -187,11 +187,14 @@ class AuthServiceClass {
       throw new ApiError(400, "Email already verified");
     }
 
-    // Generate new verification token using Better Auth
+    // Better Auth's sendVerificationEmail endpoint generates the token AND
+    // calls our configured emailVerification.sendVerificationEmail callback
+    // (see betterAuth.js) which actually sends the email — no need to
+    // build the URL or call sendEmail ourselves here.
     const { auth } = await import("../../config/betterAuth.js");
     const origin = new URL(requestOrigin);
 
-    const token = await auth.api.generateEmailVerificationToken({
+    await auth.api.sendVerificationEmail({
       body: {
         email: user.email,
       },
@@ -200,24 +203,6 @@ class AuthServiceClass {
         "x-forwarded-host": origin.host,
         "x-forwarded-proto": origin.protocol.slice(0, -1),
       }),
-    });
-
-    // Send verification email
-    const verificationUrl = new URL("/verify-email", origin);
-    verificationUrl.searchParams.set("token", token);
-
-    const { sendEmail } = await import("../../config/mailer.js");
-    await sendEmail({
-      to: user.email,
-      subject: "Verify your email address",
-      text: `Verify your email: ${verificationUrl.href}`,
-      html: `
-          <h2>Verify your email</h2>
-          <p>Hello ${user.name},</p>
-          <p>Click the button below to verify your email address.</p>
-          <a href="${verificationUrl.href}" style="display:inline-block;padding:12px 24px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Verify Email</a>
-          <p>This link expires in one hour.</p>
-        `,
     });
 
     return { message: "Verification email sent successfully" };
@@ -253,8 +238,7 @@ class AuthServiceClass {
     }
   }
 
-  async updateUserProfile(userId, updateData, requestOrigin) {
-    // --- Auth-level fields (name, email) live on the `user` collection ---
+  async updateUserProfile(userId, updateData) {
     const currentUser = await this.getAuthUserById(userId);
 
     if (!currentUser) {
@@ -262,7 +246,6 @@ class AuthServiceClass {
     }
 
     const authUpdates = {};
-    let emailChanged = false;
 
     if (updateData.name !== undefined) {
       const trimmedName = updateData.name.trim();
@@ -276,43 +259,57 @@ class AuthServiceClass {
       }
     }
 
-    if (updateData.email !== undefined) {
-      const normalizedEmail = updateData.email.trim().toLowerCase();
-
-      if (normalizedEmail !== currentUser.email?.toLowerCase()) {
-        const existing = await this.getUserByEmail(normalizedEmail);
-
-        if (existing && existing.id !== userId) {
-          throw new ApiError(409, "Email is already in use by another account");
-        }
-
-        authUpdates.email = normalizedEmail;
-        authUpdates.emailVerified = false;
-        emailChanged = true;
-      }
-    }
-
     const updatedAuthUser =
       Object.keys(authUpdates).length > 0
         ? await this.updateAuthUser(userId, authUpdates)
         : currentUser;
 
-    // --- Profile-level fields (phone, bio, preferences) ---
+    // --- Profile-level fields (phone, bio, dateOfBirth, address, smsAlerts, preferences) ---
     let profile = await UserProfile.findOne({ userId });
 
     if (!profile) {
       profile = await this.createDefaultProfile(userId);
     }
 
-    const allowedUpdates = ["phone", "bio"];
+    // Allowed profile fields
+    const allowedUpdates = [
+      "phone",
+      "bio",
+      "dateOfBirth",
+      "address",
+      "smsAlerts",
+    ];
     const filteredData = {};
 
     for (const key of allowedUpdates) {
       if (updateData[key] !== undefined) {
-        filteredData[key] = updateData[key];
+        // Clean phone number before storing (remove all non-numeric characters)
+        if (key === "phone" && updateData[key]) {
+          const cleanPhone = updateData[key].replace(/\D/g, "");
+
+          // Validate US phone number format
+          // Accept: 10 digits (US local) or 11 digits starting with '1' (with country code)
+          if (cleanPhone.length > 0) {
+            const isValid =
+              cleanPhone.length === 10 ||
+              (cleanPhone.length === 11 && cleanPhone.startsWith("1"));
+
+            if (!isValid) {
+              throw new ApiError(
+                400,
+                "Please enter a valid US phone number (e.g., +1 (555) 123-4567)"
+              );
+            }
+          }
+
+          filteredData[key] = cleanPhone;
+        } else {
+          filteredData[key] = updateData[key];
+        }
       }
     }
 
+    // Handle preferences
     if (updateData.preferences?.newsletter !== undefined) {
       filteredData["preferences.newsletter"] =
         updateData.preferences.newsletter;
@@ -323,32 +320,30 @@ class AuthServiceClass {
         updateData.preferences.notifications;
     }
 
+    // Update profile if there are changes
     const updatedProfile =
       Object.keys(filteredData).length > 0
         ? await UserProfile.findOneAndUpdate(
-            { userId },
-            { $set: filteredData },
-            { new: true, runValidators: true },
-          )
+          { userId },
+          { $set: filteredData },
+          { new: true, runValidators: true },
+        )
         : profile;
 
-    // Email changed — require re-verification of the new address
-    if (emailChanged) {
-      try {
-        await this.resendVerificationEmail(
-          updatedAuthUser.email,
-          requestOrigin,
-        );
-      } catch (error) {
-        console.warn(
-          `Failed to send verification email after email change: ${error.message}`,
-        );
+    // Format phone number for display in response
+    const profilePayload = this.getProfilePayload(updatedProfile);
+    if (profilePayload.phone) {
+      const digits = profilePayload.phone.replace(/\D/g, "");
+      if (digits.length === 10) {
+        profilePayload.phone = `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
+      } else if (digits.length === 11 && digits.startsWith("1")) {
+        profilePayload.phone = `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7, 11)}`;
       }
     }
 
     return {
       ...updatedAuthUser,
-      profile: this.getProfilePayload(updatedProfile),
+      profile: profilePayload,
     };
   }
 
@@ -442,11 +437,11 @@ class AuthServiceClass {
       typeof search === "string" ? this.escapeRegex(search.trim()) : "";
     const searchFilter = searchTerm
       ? {
-          $or: [
-            { name: { $regex: searchTerm, $options: "i" } },
-            { email: { $regex: searchTerm, $options: "i" } },
-          ],
-        }
+        $or: [
+          { name: { $regex: searchTerm, $options: "i" } },
+          { email: { $regex: searchTerm, $options: "i" } },
+        ],
+      }
       : null;
 
     const userFilter = this.combineFilters(roleUserFilter, searchFilter);

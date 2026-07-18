@@ -28,7 +28,6 @@ const updateProfile = catchAsync(async (req, res) => {
   const updatedProfile = await AuthService.updateUserProfile(
     userId,
     updateData,
-    getRequestOrigin(req),
   );
 
   sendResponse(res, {
