@@ -15,6 +15,7 @@ import { DashboardRoutes } from '../modules/dashboard/dashboard.routes.js';
 import { AssessmentSubmissionRoutes } from '../modules/assessment-submission/assessment-submission.routes.js';
 import { AssessmentLandingRoutes } from '../modules/assessment-landing/assessment-landing.routes.js';
 import { AssessmentSubmissionAdminRoutes } from '../modules/assessment-submission/index.js';
+import { ContactAdminRoutes, ContactRoutes } from '../modules/contact/contact-index.js';
 
 const router = express.Router();
 
@@ -44,5 +45,7 @@ router.use('/assessment-submissions', AssessmentSubmissionRoutes);
 router.use('/assessment-landing', AssessmentLandingRoutes);
 router.use('/dashboard', DashboardRoutes);
 router.use('/admin/assessment-participants', AssessmentSubmissionAdminRoutes);
+router.use('/contact', ContactRoutes);
+router.use('/admin/contact-messages', ContactAdminRoutes);
 
 export default router;
