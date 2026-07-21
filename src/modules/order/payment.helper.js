@@ -1,5 +1,6 @@
 import PurchaseService from "../purchase/purchase.service.js";
 import OrderService from "./order.service.js";
+import { FRONTEND_URL } from "../../config/stripe.js";
 
 export const processSuccessfulPayment = async (orderId, stripePaymentIntentId) => {
     // const { default: OrderService } = await import("./order.service.js");
@@ -51,7 +52,7 @@ export const processSuccessfulPayment = async (orderId, stripePaymentIntentId) =
       orderId: order._id,
       orderNumber: order.orderNumber,
       lineItems,
-      successUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/success?orderId=${order._id}`,
-      cancelUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/cancel?orderId=${order._id}`,
+      successUrl: `${FRONTEND_URL}/payment/success?orderId=${order._id}`,
+      cancelUrl: `${FRONTEND_URL}/payment/cancel?orderId=${order._id}`,
     };
   };

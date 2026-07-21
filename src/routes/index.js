@@ -12,6 +12,11 @@ import { AnalyticsRoutes } from '../modules/analytics/analytics.routes.js';
 import { RefundRoutes } from '../modules/refund/refund.routes.js';
 import { AssessmentRoutes } from '../modules/assessment/assessment.routes.js';
 import { DashboardRoutes } from '../modules/dashboard/dashboard.routes.js';
+import { AssessmentSubmissionRoutes } from '../modules/assessment-submission/assessment-submission.routes.js';
+import { AssessmentLandingRoutes } from '../modules/assessment-landing/assessment-landing.routes.js';
+import { AssessmentSubmissionAdminRoutes } from '../modules/assessment-submission/index.js';
+import { ContactRoutes, ContactAdminRoutes } from '../modules/contact/contact-index.js';
+import { NewsletterRoutes, NewsletterAdminRoutes } from '../modules/newsletter/index.js';
 
 const router = express.Router();
 
@@ -37,6 +42,13 @@ router.use('/coupons', CouponRoutes);
 router.use('/admin/analytics', AnalyticsRoutes);
 router.use('/refunds', RefundRoutes);
 router.use('/assessments', AssessmentRoutes);
+router.use('/assessment-submissions', AssessmentSubmissionRoutes);
+router.use('/assessment-landing', AssessmentLandingRoutes);
 router.use('/dashboard', DashboardRoutes);
+router.use('/admin/assessment-participants', AssessmentSubmissionAdminRoutes);
+router.use('/contact', ContactRoutes);
+router.use('/admin/contact-messages', ContactAdminRoutes);
+router.use('/newsletter', NewsletterRoutes);
+router.use('/admin/newsletter', NewsletterAdminRoutes);
 
 export default router;

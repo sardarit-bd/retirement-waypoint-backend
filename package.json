@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "migrate:auth-principal": "node src/scripts/migrate-auth-principal.js"
+    "migrate:auth-principal": "node src/scripts/migrate-auth-principal.js",
+    "seed:assessments": "node src/assessment.seeder.js",
+    "seed:landing": "node src/seed-landing.js"
   },
   "dependencies": {
     "better-auth": "^1.6.20",
@@ -23,6 +25,7 @@
     "nodemailer": "^8.0.11",
     "pdfkit": "^0.19.1",
     "stripe": "^22.2.1",
+    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -1,8 +1,25 @@
 import { z } from "zod";
 
+// A valid US phone number is exactly 10 digits, or 11 digits with a
+// leading country code of 1 - regardless of how it's punctuated
+// (spaces, dashes, parens, a leading "+") when the request is made.
+const isValidUSPhoneDigits = (value) => {
+  const digits = value.replace(/\D/g, "");
+  return digits.length === 10 || (digits.length === 11 && digits.startsWith("1"));
+};
+
 export const updateProfileValidation = z.object({
   body: z.object({
-    phone: z.string().trim().min(5).max(30).optional(),
+    name: z.string().trim().min(3).max(100).optional(),
+    phone: z
+      .string()
+      .trim()
+      .max(20, "Phone number is too long")
+      .optional()
+      .refine((val) => !val || isValidUSPhoneDigits(val), {
+        message:
+          "Please enter a valid US phone number, e.g. (555) 123-4567 or +1 (555) 123-4567",
+      }),
     bio: z.string().trim().max(500).optional(),
     preferences: z
       .object({
