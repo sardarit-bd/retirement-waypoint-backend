@@ -10,6 +10,7 @@ import {
   deleteBookValidation,
   publicGetBooksValidation,
   publicGetBookBySlugValidation,
+  publicGetBookPreviewValidation,
   validate,
 } from "./book.validation.js";
 import { protect, restrictTo } from "../../middleware/authMiddleware.js";
@@ -85,6 +86,13 @@ publicRouter.get(
 
 // Get featured books
 publicRouter.get("/featured", BookController.getFeaturedBooks);
+
+// Get page-limited preview PDF for a book (published only)
+publicRouter.get(
+  "/:slug/preview",
+  validate(publicGetBookPreviewValidation),
+  BookController.getBookPreview,
+);
 
 // Get book by slug (published only)
 publicRouter.get(

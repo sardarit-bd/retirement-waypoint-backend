@@ -1,9 +1,71 @@
 import mongoose from "mongoose";
+import { PDFDocument } from "pdf-lib";
 import { Book } from "./book.model.js";
 import ApiError from "../../utils/ApiError.js";
 import UploadService from "../upload/upload.service.js";
 
+// In-memory cache for generated preview PDFs.
+// Keyed by `${bookId}_${updatedAt}_${endPage}` so it self-invalidates
+// whenever the admin changes preview settings or replaces the PDF.
+const PREVIEW_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const PREVIEW_CACHE_MAX_ENTRIES = 200;
+const previewCache = new Map();
+
+function getCachedPreview(cacheKey) {
+  const entry = previewCache.get(cacheKey);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) {
+    previewCache.delete(cacheKey);
+    return null;
+  }
+  return entry.buffer;
+}
+
+function setCachedPreview(cacheKey, buffer) {
+  if (previewCache.size >= PREVIEW_CACHE_MAX_ENTRIES) {
+    const oldestKey = previewCache.keys().next().value;
+    previewCache.delete(oldestKey);
+  }
+  previewCache.set(cacheKey, {
+    buffer,
+    expiresAt: Date.now() + PREVIEW_CACHE_TTL_MS,
+  });
+}
+
 class BookServiceClass {
+  // Clamp preview end page so it can never exceed the book's actual page
+  // count (and is never less than 1).
+  clampPreviewEndPage(previewEndPage, pageCount) {
+    if (previewEndPage == null) return previewEndPage;
+    const count = Number(pageCount) || 1;
+    return Math.min(Math.max(Number(previewEndPage), 1), count);
+  }
+
+  // Fetch the source PDF and build a new PDF containing only the first
+  // `endPage` pages. This is real page-level enforcement (not CSS hiding) -
+  // pages after the limit never exist in the bytes sent to the client.
+  async generatePreviewBuffer(pdfUrl, endPage) {
+    const response = await fetch(pdfUrl);
+    if (!response.ok) {
+      throw new ApiError(502, "Failed to load book file for preview");
+    }
+    const arrayBuffer = await response.arrayBuffer();
+
+    const sourceDoc = await PDFDocument.load(arrayBuffer, {
+      ignoreEncryption: true,
+    });
+    const totalPages = sourceDoc.getPageCount();
+    const safeEndPage = Math.max(1, Math.min(endPage, totalPages));
+
+    const previewDoc = await PDFDocument.create();
+    const pageIndices = Array.from({ length: safeEndPage }, (_, i) => i);
+    const copiedPages = await previewDoc.copyPages(sourceDoc, pageIndices);
+    copiedPages.forEach((page) => previewDoc.addPage(page));
+
+    const bytes = await previewDoc.save();
+    return Buffer.from(bytes);
+  }
+
   // Helper to generate unique slug
   async generateUniqueSlug(title, existingId = null) {
     let slug = title
@@ -59,10 +121,17 @@ class BookServiceClass {
     // Generate unique slug
     const slug = await this.generateUniqueSlug(bookData.title);
 
+    // Clamp preview end page to the book's page count
+    const previewEndPage = this.clampPreviewEndPage(
+      bookData.previewEndPage,
+      bookData.pageCount,
+    );
+
     // Create book record
     const book = await Book.create({
       ...bookData,
       slug,
+      ...(previewEndPage != null ? { previewEndPage } : {}),
       coverImage: coverUpload.url,
       coverImagePublicId: coverUpload.publicId,
       pdfFile: pdfUpload.url,
@@ -132,6 +201,15 @@ class BookServiceClass {
       updateData.slug = await this.generateUniqueSlug(updateData.title, bookId);
     }
 
+    // Clamp preview end page against the (possibly updated) page count
+    if (updateData.previewEndPage != null) {
+      const effectivePageCount = updateData.pageCount ?? book.pageCount;
+      updateData.previewEndPage = this.clampPreviewEndPage(
+        updateData.previewEndPage,
+        effectivePageCount,
+      );
+    }
+
     // Handle status change to PUBLISHED
     if (updateData.status === "PUBLISHED" && book.status !== "PUBLISHED") {
       updateData.publishedAt = new Date();
@@ -163,18 +241,65 @@ class BookServiceClass {
   }
 
   // Get book by slug (only published)
+  // NOTE: excludes the raw PDF URL - the full book file must never reach
+  // an unauthenticated client. Purchased users read via the signed
+  // /my-books/:bookId/read|stream endpoints; everyone else only ever gets
+  // the page-limited preview from getBookPreviewPdf below.
   async getBookBySlug(slug) {
     const book = await Book.findOne({
       slug,
       status: "PUBLISHED",
       deletedAt: null,
-    });
+    }).select("-pdfFile -pdfFilePublicId");
 
     if (!book) {
       throw new ApiError(404, "Book not found");
     }
 
     return book;
+  }
+
+  // Get a preview PDF (first N pages only) for a published book.
+  // Pages beyond previewEndPage are never included in the generated
+  // document, so there is nothing for the client to reach even if it
+  // inspects the network response directly.
+  async getBookPreviewPdf(slug) {
+    const book = await Book.findOne({
+      slug,
+      status: "PUBLISHED",
+      deletedAt: null,
+    }).select("title slug pdfFile pageCount previewEnabled previewEndPage updatedAt");
+
+    if (!book) {
+      throw new ApiError(404, "Book not found");
+    }
+
+    if (!book.previewEnabled) {
+      throw new ApiError(403, "Preview is not available for this book");
+    }
+
+    if (!book.pdfFile) {
+      throw new ApiError(500, "Book PDF not available");
+    }
+
+    const endPage = this.clampPreviewEndPage(
+      book.previewEndPage || 5,
+      book.pageCount,
+    );
+
+    const cacheKey = `${book._id}_${book.updatedAt.getTime()}_${endPage}`;
+    let buffer = getCachedPreview(cacheKey);
+
+    if (!buffer) {
+      buffer = await this.generatePreviewBuffer(book.pdfFile, endPage);
+      setCachedPreview(cacheKey, buffer);
+    }
+
+    return {
+      buffer,
+      fileName: `${book.slug}-preview.pdf`,
+      bookTitle: book.title,
+    };
   }
 
   // Get all books with filters (admin)

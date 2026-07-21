@@ -172,6 +172,17 @@ const getPublicBookBySlug = catchAsync(async (req, res) => {
   });
 });
 
+// Stream a page-limited preview PDF (public, no purchase required)
+const getBookPreview = catchAsync(async (req, res) => {
+  const { slug } = req.params;
+  const { buffer, fileName } = await BookService.getBookPreviewPdf(slug);
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${fileName}"`);
+  res.setHeader("Cache-Control", "public, max-age=1800");
+  res.send(buffer);
+});
+
 export const BookController = {
   createBook,
   updateBook,
@@ -183,4 +194,5 @@ export const BookController = {
   getPublicBooks,
   getFeaturedBooks,
   getPublicBookBySlug,
+  getBookPreview,
 };
