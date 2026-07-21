@@ -9,6 +9,23 @@ const ALLOWED_IMAGE_TYPES = [
 ];
 const ALLOWED_PDF_TYPES = ["application/pdf"];
 
+// z.coerce.boolean() treats ANY non-empty string as true (Boolean("false")
+// is true), which breaks multipart/form-data submissions where every value
+// arrives as a string. This preprocesses "false"/"0" to actual false first.
+const zBooleanFromForm = () =>
+  z.preprocess((val) => {
+    if (typeof val === "string") {
+      const normalized = val.trim().toLowerCase();
+      if (normalized === "false" || normalized === "0" || normalized === "") {
+        return false;
+      }
+      if (normalized === "true" || normalized === "1") {
+        return true;
+      }
+    }
+    return val;
+  }, z.boolean());
+
 // Create Book Validation
 export const createBookValidation = z.object({
   body: z.object({
@@ -28,6 +45,14 @@ export const createBookValidation = z.object({
     featured: z.coerce.boolean().optional(),
 
     status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).optional(),
+
+    previewEnabled: zBooleanFromForm().optional(),
+
+    previewEndPage: z.coerce
+      .number()
+      .int()
+      .min(1, "Preview end page must be at least 1")
+      .optional(),
   }),
 });
 
@@ -58,6 +83,14 @@ export const updateBookValidation = z.object({
     featured: z.coerce.boolean().optional(),
 
     status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).optional(),
+
+    previewEnabled: zBooleanFromForm().optional(),
+
+    previewEndPage: z.coerce
+      .number()
+      .int()
+      .min(1, "Preview end page must be at least 1")
+      .optional(),
   }),
 });
 
@@ -120,6 +153,13 @@ export const publicGetBooksValidation = z.object({
 
 // Public Get Book by Slug Validation
 export const publicGetBookBySlugValidation = z.object({
+  params: z.object({
+    slug: z.string().min(1, "Book slug is required"),
+  }),
+});
+
+// Public Get Book Preview Validation
+export const publicGetBookPreviewValidation = z.object({
   params: z.object({
     slug: z.string().min(1, "Book slug is required"),
   }),

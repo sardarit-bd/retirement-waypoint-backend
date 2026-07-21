@@ -56,6 +56,15 @@ const bookSchema = new mongoose.Schema(
       required: [true, "Page count is required"],
       min: [1, "Page count must be at least 1"],
     },
+    previewEnabled: {
+      type: Boolean,
+      default: true,
+    },
+    previewEndPage: {
+      type: Number,
+      default: 5,
+      min: [1, "Preview end page must be at least 1"],
+    },
     averageRating: {
       type: Number,
       default: 0,
