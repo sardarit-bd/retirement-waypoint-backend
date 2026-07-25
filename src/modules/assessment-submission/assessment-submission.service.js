@@ -41,7 +41,15 @@ class AssessmentSubmissionService {
     // 6. Generate recommendations
     const recommendations = generateRecommendations(resultRange);
 
-    // 7. Prepare submission data
+    // 7. Fetch previous submission for comparison (before saving new one)
+    const now = new Date();
+    const previousSubmission = await AssessmentSubmissionRepository.findPreviousByEmailAndAssessment(
+      submissionData.participant.email,
+      assessment._id,
+      now
+    );
+
+    // 8. Prepare submission data
     const submission = {
       assessmentId: assessment._id,
       assessmentSlug: assessment.slug,
@@ -60,14 +68,14 @@ class AssessmentSubmissionService {
         color: resultRange.color,
       },
       recommendations,
-      completedAt: new Date(),
+      completedAt: now,
     };
 
-    // 8. Save submission
+    // 9. Save submission
     const savedSubmission = await AssessmentSubmissionRepository.create(submission);
 
-    // 9. Prepare response
-    return {
+    // 10. Prepare response with comparison data
+    const response = {
       submissionId: savedSubmission._id,
       assessmentId: assessment._id,
       assessmentSlug: assessment.slug,
@@ -82,6 +90,19 @@ class AssessmentSubmissionService {
       recommendations,
       completedAt: savedSubmission.completedAt,
     };
+
+    if (previousSubmission) {
+      const scoreChange = overallScore - previousSubmission.overallScore;
+      response.previousSubmission = {
+        overallScore: previousSubmission.overallScore,
+        domainScores: previousSubmission.domainScores,
+        completedAt: previousSubmission.completedAt,
+        scoreChange,
+        scoreChangeDirection: scoreChange > 0 ? 'improved' : scoreChange < 0 ? 'declined' : 'unchanged',
+      };
+    }
+
+    return response;
   }
 
   /**

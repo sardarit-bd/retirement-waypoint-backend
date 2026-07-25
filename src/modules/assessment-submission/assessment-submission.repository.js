@@ -95,6 +95,20 @@ class AssessmentSubmissionRepository {
   }
 
   /**
+   * Find previous submission by email and assessment (before a given date)
+   */
+  async findPreviousByEmailAndAssessment(email, assessmentId, beforeDate) {
+    return await AssessmentSubmission.findOne({
+      'participant.email': email.toLowerCase().trim(),
+      assessmentId,
+      completedAt: { $lt: beforeDate || new Date() },
+    })
+      .sort({ completedAt: -1 })
+      .select('overallScore domainScores completedAt resultRange')
+      .lean();
+  }
+
+  /**
    * Get submission statistics
    */
   async getStats() {
