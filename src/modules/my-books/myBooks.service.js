@@ -245,6 +245,7 @@ class MyBooksServiceClass {
     }
 
     // Generate signed URL with 15-minute expiry
+    const downloadFileName = `${book.slug}.pdf`;
     const signedUrl = cloudinary.url(book.pdfFilePublicId, {
       resource_type: "raw",
       secure: true,
@@ -266,7 +267,7 @@ class MyBooksServiceClass {
       downloadUrl: signedUrl,
       expiresIn: "15 minutes",
       bookTitle: book.title,
-      fileName: `${book.slug}.pdf`,
+      fileName: downloadFileName,
     };
   }
 

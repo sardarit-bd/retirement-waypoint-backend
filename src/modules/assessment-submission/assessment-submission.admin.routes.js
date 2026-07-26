@@ -26,6 +26,12 @@ router.get(
   AssessmentSubmissionAdminController.getStats
 );
 
+// Get participant history by email
+router.get(
+  '/history/:email',
+  AssessmentSubmissionAdminController.getParticipantHistory
+);
+
 // Get participant by ID
 router.get(
   '/:id',
