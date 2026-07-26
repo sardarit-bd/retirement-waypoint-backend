@@ -131,6 +131,168 @@ class AssessmentSubmissionRepository {
   }
 
   /**
+   * Find participants grouped by email (admin)
+   */
+  async findParticipantsGrouped({
+    page = 1,
+    limit = 10,
+    search,
+    assessmentSlug,
+    resultRange,
+    sortBy = 'newest',
+    dateFrom,
+    dateTo,
+  } = {}) {
+    const match = {};
+
+    // Search by name or email
+    if (search && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), 'i');
+      match.$or = [
+        { 'participant.name': searchRegex },
+        { 'participant.email': searchRegex },
+      ];
+    }
+
+    // Filter by assessment
+    if (assessmentSlug) {
+      match.assessmentSlug = assessmentSlug;
+    }
+
+    // Filter by result range
+    if (resultRange) {
+      match['resultRange.title'] = resultRange;
+    }
+
+    // Filter by date range
+    if (dateFrom || dateTo) {
+      match.completedAt = {};
+      if (dateFrom) {
+        match.completedAt.$gte = new Date(dateFrom);
+      }
+      if (dateTo) {
+        match.completedAt.$lte = new Date(dateTo);
+      }
+    }
+
+    // Sort mapping for grouped results
+    const sortMap = {
+      newest: { latestCompletedAt: -1 },
+      oldest: { latestCompletedAt: 1 },
+      highestScore: { latestScore: -1 },
+      lowestScore: { latestScore: 1 },
+      nameAZ: { 'participant.name': 1 },
+      nameZA: { 'participant.name': -1 },
+    };
+
+    const skip = (page - 1) * limit;
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+
+    const pipeline = [
+      { $match: match },
+      { $sort: { completedAt: -1 } },
+      {
+        $group: {
+          _id: '$participant.email',
+          participant: { $first: '$participant' },
+          totalAttempts: { $sum: 1 },
+          latestSubmissionId: { $first: '$_id' },
+          latestAssessmentSlug: { $first: '$assessmentSlug' },
+          latestScore: { $first: '$overallScore' },
+          latestResultRange: { $first: '$resultRange' },
+          latestCompletedAt: { $first: '$completedAt' },
+          scores: { $push: '$overallScore' },
+        },
+      },
+      {
+        $addFields: {
+          scoreChange: {
+            $cond: {
+              if: { $gte: [{ $size: '$scores' }, 2] },
+              then: { $subtract: [{ $arrayElemAt: ['$scores', 0] }, { $arrayElemAt: ['$scores', 1] }] },
+              else: null,
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          scoreChangeDirection: {
+            $cond: {
+              if: { $eq: ['$scoreChange', null] }, then: null,
+              else: {
+                $cond: {
+                  if: { $gt: ['$scoreChange', 0] },
+                  then: 'improved',
+                  else: {
+                    $cond: {
+                      if: { $lt: ['$scoreChange', 0] },
+                      then: 'declined',
+                      else: 'unchanged',
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      { $sort: sortMap[sortBy] || { latestCompletedAt: -1 } },
+      { $skip: skip },
+      { $limit: limitNum },
+    ];
+
+    // Count pipeline (same match + group, then count)
+    const countPipeline = [
+      { $match: match },
+      { $group: { _id: '$participant.email' } },
+      { $count: 'count' },
+    ];
+
+    const [results, countResult] = await Promise.all([
+      AssessmentSubmission.aggregate(pipeline),
+      AssessmentSubmission.aggregate(countPipeline),
+    ]);
+
+    const total = countResult[0]?.count || 0;
+
+    // Get filter options
+    const [assessmentSlugs, resultRanges] = await Promise.all([
+      AssessmentSubmission.distinct('assessmentSlug', {}),
+      AssessmentSubmission.distinct('resultRange.title', {}),
+    ]);
+
+    return {
+      submissions: results,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum),
+        hasNextPage: pageNum * limitNum < total,
+        hasPrevPage: pageNum > 1,
+      },
+      filters: {
+        assessmentSlugs,
+        resultRanges,
+      },
+    };
+  }
+
+  /**
+   * Find all submissions by email (for history)
+   */
+  async findByEmailAll(email) {
+    return await AssessmentSubmission.find({
+      'participant.email': email.toLowerCase().trim(),
+    })
+      .sort({ completedAt: -1 })
+      .populate('assessmentId', 'slug hero title')
+      .lean();
+  }
+
+  /**
  * Find participants with filters (admin)
  */
   async findParticipants({

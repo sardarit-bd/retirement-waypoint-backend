@@ -52,6 +52,23 @@ class AssessmentSubmissionAdminController {
       next(error);
     }
   }
+
+  /**
+   * Get participant history by email (admin)
+   * GET /api/admin/assessment-participants/history/:email
+   */
+  async getParticipantHistory(req, res, next) {
+    try {
+      const { email } = req.params;
+      const history = await AssessmentSubmissionService.getParticipantHistory(decodeURIComponent(email));
+      return sendResponse(res, {
+        message: 'Participant history retrieved successfully',
+        data: history,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new AssessmentSubmissionAdminController();

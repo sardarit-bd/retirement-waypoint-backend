@@ -128,25 +128,35 @@ class DashboardServiceClass {
   }
 
   async getAssessmentProgress(userId) {
-    const submissions = await AssessmentSubmission.find({ userId }) // ✅ FIXED
-      .sort({ completedAt: -1 });
+    const submissions = await AssessmentSubmission.find({ userId })
+      .sort({ completedAt: -1 })
+      .lean();
 
     if (submissions.length === 0) {
       return {
         hasAssessment: false,
-        progress: 0,
-        score: 0,
       };
     }
 
-    const total = submissions.length;
-    const progress = Math.min(total * 20, 100);
+    const latest = submissions[0];
+    const previous = submissions.length > 1 ? submissions[1] : null;
+
+    let scoreChange = null;
+    let scoreChangeDirection = null;
+    if (previous) {
+      scoreChange = latest.overallScore - previous.overallScore;
+      scoreChangeDirection = scoreChange > 0 ? 'improved' : scoreChange < 0 ? 'declined' : 'unchanged';
+    }
 
     return {
       hasAssessment: true,
-      progress,
-      score: submissions[0]?.overallScore || 0, // ✅ FIXED: use overallScore
-      totalAssessments: total,
+      totalAssessments: submissions.length,
+      latestScore: latest.overallScore,
+      latestSubmissionId: latest._id,
+      assessmentSlug: latest.assessmentSlug,
+      previousScore: previous?.overallScore || null,
+      scoreChange,
+      scoreChangeDirection,
     };
   }
 

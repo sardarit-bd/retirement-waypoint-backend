@@ -106,14 +106,35 @@ class AssessmentSubmissionService {
   }
 
   /**
-   * Get submission by ID
+   * Get submission by ID with previous submission comparison
    */
   async getSubmissionById(id) {
     const submission = await AssessmentSubmissionRepository.findById(id);
     if (!submission) {
       throw new ApiError(404, 'Submission not found');
     }
-    return submission;
+
+    // Fetch previous submission for comparison
+    const previousSubmission = await AssessmentSubmissionRepository.findPreviousByEmailAndAssessment(
+      submission.participant.email,
+      submission.assessmentId,
+      submission.completedAt
+    );
+
+    const result = { ...submission };
+
+    if (previousSubmission) {
+      const scoreChange = submission.overallScore - previousSubmission.overallScore;
+      result.previousSubmission = {
+        overallScore: previousSubmission.overallScore,
+        domainScores: previousSubmission.domainScores,
+        completedAt: previousSubmission.completedAt,
+        scoreChange,
+        scoreChangeDirection: scoreChange > 0 ? 'improved' : scoreChange < 0 ? 'declined' : 'unchanged',
+      };
+    }
+
+    return result;
   }
 
   /**
@@ -160,7 +181,7 @@ class AssessmentSubmissionService {
   }
 
   /**
-   * Get participants with filters (admin)
+   * Get participants grouped by email with filters (admin)
    */
   async getParticipants(query = {}) {
     const {
@@ -174,7 +195,7 @@ class AssessmentSubmissionService {
       dateTo,
     } = query;
 
-    const result = await AssessmentSubmissionRepository.findParticipants({
+    const result = await AssessmentSubmissionRepository.findParticipantsGrouped({
       page,
       limit,
       search,
@@ -186,6 +207,38 @@ class AssessmentSubmissionService {
     });
 
     return result;
+  }
+
+  /**
+   * Get participant history by email
+   */
+  async getParticipantHistory(email) {
+    const submissions = await AssessmentSubmissionRepository.findByEmailAll(email);
+    if (submissions.length === 0) {
+      throw new ApiError(404, 'No submissions found for this participant');
+    }
+
+    // Add score comparison between consecutive attempts (newest first)
+    const history = submissions.map((sub, index) => {
+      const prevSub = submissions[index + 1]; // next in sorted order = older
+      let scoreChange = null;
+      let scoreChangeDirection = null;
+      if (prevSub) {
+        scoreChange = sub.overallScore - prevSub.overallScore;
+        scoreChangeDirection = scoreChange > 0 ? 'improved' : scoreChange < 0 ? 'declined' : 'unchanged';
+      }
+      return {
+        ...sub,
+        scoreChange,
+        scoreChangeDirection,
+      };
+    });
+
+    return {
+      participant: submissions[0].participant,
+      totalAttempts: submissions.length,
+      history,
+    };
   }
 
   /**
