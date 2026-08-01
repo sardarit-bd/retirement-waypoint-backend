@@ -1,0 +1,32 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy Backend to VPS
+        uses: appleboy/ssh-action@v1.2.2
+
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+
+          script: |
+            set -e
+
+            cd ~/apps/retirement-waypoint-backend
+
+            git fetch origin
+            git reset --hard origin/main
+
+            npm ci
+
+            pm2 restart retirement-backend
+            pm2 save
