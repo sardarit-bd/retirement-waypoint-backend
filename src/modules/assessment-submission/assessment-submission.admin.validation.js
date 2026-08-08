@@ -21,6 +21,17 @@ export const getParticipantByIdValidation = z.object({
   }),
 });
 
+export const exportParticipantsValidation = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    assessmentSlug: z.string().optional(),
+    resultRange: z.string().optional(),
+    dateFrom: z.string().datetime().optional(),
+    dateTo: z.string().datetime().optional(),
+    format: z.enum(['xlsx', 'csv']).default('xlsx'),
+  }),
+});
+
 export const validate = (schema) => {
   return async (req, res, next) => {
     try {

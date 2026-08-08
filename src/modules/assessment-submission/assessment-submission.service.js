@@ -8,6 +8,7 @@ import {
   generateRecommendations,
 } from '../../utils/result-calculator.js';
 import ApiError from '../../utils/ApiError.js';
+import XLSX from 'xlsx';
 
 class AssessmentSubmissionService {
   /**
@@ -238,6 +239,98 @@ class AssessmentSubmissionService {
       participant: submissions[0].participant,
       totalAttempts: submissions.length,
       history,
+    };
+  }
+
+  /**
+   * Export submission responses (admin)
+   */
+  async exportParticipants(query = {}) {
+    const submissions = await AssessmentSubmissionRepository.findForExport(query);
+    const rows = [];
+
+    for (const submission of submissions) {
+      const assessment = submission.assessmentId || {};
+      const questionInfoById = {};
+      const domainInfoById = {};
+
+      for (const domain of assessment.domains || []) {
+        domainInfoById[domain.id] = domain;
+        for (const question of domain.questions || []) {
+          questionInfoById[question.id] = question;
+        }
+      }
+
+      const row = {
+        'Assessment Name': assessment.hero?.title || assessment.introduction?.title || '',
+        'Assessment Type': assessment.introduction?.badge || '',
+        'Assessment Slug': submission.assessmentSlug || assessment.slug || '',
+        'User Name': submission.participant?.name || '',
+        'User Email': submission.participant?.email || '',
+        'Submission Date': submission.completedAt ? new Date(submission.completedAt).toISOString() : '',
+        'Score': submission.overallScore ?? '',
+        'Result': submission.resultRange?.title || '',
+        'Result Description': submission.resultRange?.description || '',
+      };
+
+      for (const answer of submission.answers || []) {
+        const question = questionInfoById[answer.questionId];
+        const label = question?.text || answer.questionId;
+        const option = question?.options?.find((item) => item.value === answer.value);
+        row[`Answer: ${label}`] = option?.label || answer.value;
+        row[`Answer Score: ${label}`] = answer.score ?? '';
+      }
+
+      for (const reflection of submission.reflections || []) {
+        const label = reflection.question || reflection.domainId;
+        row[`Reflection: ${label}`] = reflection.answer || '';
+      }
+
+      for (const domainScore of submission.domainScores || []) {
+        const domain = domainInfoById[domainScore.domainId];
+        const label = domain?.label || domainScore.domainLabel || domainScore.domainKey || domainScore.domainId;
+        row[`Domain Score: ${label}`] = domainScore.score ?? '';
+        row[`Domain Percentage: ${label}`] = domainScore.percentage ?? '';
+      }
+
+      rows.push(row);
+    }
+
+    const baseHeaders = [
+      'Assessment Name',
+      'Assessment Type',
+      'Assessment Slug',
+      'User Name',
+      'User Email',
+      'Submission Date',
+      'Score',
+      'Result',
+      'Result Description',
+    ];
+    const headers = [...baseHeaders];
+    for (const row of rows) {
+      for (const key of Object.keys(row)) {
+        if (!headers.includes(key)) headers.push(key);
+      }
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Assessment Responses');
+    const format = query.format || 'xlsx';
+
+    if (format === 'csv') {
+      return {
+        buffer: Buffer.from(XLSX.utils.sheet_to_csv(worksheet), 'utf8'),
+        contentType: 'text/csv; charset=utf-8',
+        filename: `assessment-responses-${new Date().toISOString().slice(0, 10)}.csv`,
+      };
+    }
+
+    return {
+      buffer: XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }),
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      filename: `assessment-responses-${new Date().toISOString().slice(0, 10)}.xlsx`,
     };
   }
 

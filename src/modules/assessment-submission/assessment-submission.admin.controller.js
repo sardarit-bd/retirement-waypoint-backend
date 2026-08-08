@@ -54,6 +54,23 @@ class AssessmentSubmissionAdminController {
   }
 
   /**
+   * Export assessment responses (admin)
+   * GET /api/admin/assessment-participants/export
+   */
+  async exportParticipants(req, res, next) {
+    try {
+      const query = req.validatedQuery || req.query;
+      const file = await AssessmentSubmissionService.exportParticipants(query);
+
+      res.setHeader('Content-Type', file.contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+      return res.status(200).send(file.buffer);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Get participant history by email (admin)
    * GET /api/admin/assessment-participants/history/:email
    */

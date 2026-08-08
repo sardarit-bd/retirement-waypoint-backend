@@ -198,6 +198,7 @@ class AssessmentSubmissionRepository {
           participant: { $first: '$participant' },
           totalAttempts: { $sum: 1 },
           latestSubmissionId: { $first: '$_id' },
+          latestAssessmentId: { $first: '$assessmentId' },
           latestAssessmentSlug: { $first: '$assessmentSlug' },
           latestScore: { $first: '$overallScore' },
           latestResultRange: { $first: '$resultRange' },
@@ -206,7 +207,22 @@ class AssessmentSubmissionRepository {
         },
       },
       {
+        $lookup: {
+          from: 'assessments',
+          localField: 'latestAssessmentId',
+          foreignField: '_id',
+          as: 'latestAssessment',
+        },
+      },
+      {
+        $unwind: {
+          path: '$latestAssessment',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
         $addFields: {
+          latestAssessmentType: '$latestAssessment.introduction.badge',
           scoreChange: {
             $cond: {
               if: { $gte: [{ $size: '$scores' }, 2] },
@@ -397,6 +413,44 @@ class AssessmentSubmissionRepository {
         resultRanges,
       },
     };
+  }
+
+  /**
+   * Find submission-level export data with filters (admin)
+   */
+  async findForExport({ search, assessmentSlug, resultRange, dateFrom, dateTo } = {}) {
+    const query = {};
+
+    if (search && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), 'i');
+      query.$or = [
+        { 'participant.name': searchRegex },
+        { 'participant.email': searchRegex },
+      ];
+    }
+
+    if (assessmentSlug) {
+      query.assessmentSlug = assessmentSlug;
+    }
+
+    if (resultRange) {
+      query['resultRange.title'] = resultRange;
+    }
+
+    if (dateFrom || dateTo) {
+      query.completedAt = {};
+      if (dateFrom) query.completedAt.$gte = new Date(dateFrom);
+      if (dateTo) query.completedAt.$lte = new Date(dateTo);
+    }
+
+    return await AssessmentSubmission.find(query)
+      .sort({ completedAt: -1 })
+      .select('assessmentId assessmentSlug participant answers reflections domainScores overallScore resultRange completedAt createdAt')
+      .populate({
+        path: 'assessmentId',
+        select: 'slug hero.title introduction.title introduction.badge domains',
+      })
+      .lean();
   }
 
   /**
