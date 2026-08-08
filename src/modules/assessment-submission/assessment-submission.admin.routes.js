@@ -3,6 +3,7 @@ import AssessmentSubmissionAdminController from './assessment-submission.admin.c
 import {
   getParticipantsValidation,
   getParticipantByIdValidation,
+  exportParticipantsValidation,
   validate,
 } from './assessment-submission.admin.validation.js';
 import { protect, restrictTo } from '../../middleware/authMiddleware.js';
@@ -18,6 +19,13 @@ router.get(
   '/',
   validate(getParticipantsValidation),
   AssessmentSubmissionAdminController.getParticipants
+);
+
+// Export assessment responses
+router.get(
+  '/export',
+  validate(exportParticipantsValidation),
+  AssessmentSubmissionAdminController.exportParticipants
 );
 
 // Get participant stats
