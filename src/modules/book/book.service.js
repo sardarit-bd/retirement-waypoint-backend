@@ -3,6 +3,7 @@ import { PDFDocument } from "pdf-lib";
 import { Book } from "./book.model.js";
 import ApiError from "../../utils/ApiError.js";
 import UploadService from "../upload/upload.service.js";
+import { Purchase } from "../purchase/purchase.model.js";
 
 // In-memory cache for generated preview PDFs.
 // Keyed by `${bookId}_${updatedAt}_${endPage}` so it self-invalidates
@@ -467,12 +468,20 @@ class BookServiceClass {
     return book;
   }
 
-  // Soft delete book (NOTE: Does NOT delete Cloudinary files)
+  // Soft delete book (prevents deletion if book has purchases)
   async deleteBook(bookId) {
     const book = await this.getBookById(bookId);
 
     if (book.deletedAt) {
       throw new ApiError(400, "Book is already deleted");
+    }
+
+    const purchaseCount = await Purchase.countDocuments({ bookId });
+    if (purchaseCount > 0) {
+      throw new ApiError(
+        400,
+        `Cannot delete this book: ${purchaseCount} customer(s) have purchased it. Unpublish or archive it instead.`
+      );
     }
 
     book.deletedAt = new Date();
