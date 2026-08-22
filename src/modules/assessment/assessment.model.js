@@ -73,7 +73,7 @@ const assessmentSchema = new mongoose.Schema({
     },
     subtitle: { type: String, required: true },
     description: { type: String, required: true },
-    duration: { type: String, default: '10–12 min' },
+    duration: { type: String, default: '5–8 min' },
     ctaButton: { type: String, default: 'Begin Assessment' },
   },
   domains: [domainSchema],
