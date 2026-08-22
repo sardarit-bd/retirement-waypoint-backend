@@ -7,11 +7,12 @@ const participantSchema = z.object({
     .max(100, 'Name cannot exceed 100 characters')
     .trim(),
   email: z.string()
-    .min(1, 'Email is required')
     .email('Invalid email format')
     .max(255, 'Email cannot exceed 255 characters')
     .trim()
-    .toLowerCase(),
+    .toLowerCase()
+    .optional()
+    .or(z.literal('')),
 });
 
 // Answer schema
