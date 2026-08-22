@@ -62,7 +62,7 @@ const assessmentSchema = z.object({
     author: z.string().default('David Allen, Ph.D.'),
     subtitle: z.string().min(1, 'Introduction subtitle is required'),
     description: z.string().min(1, 'Introduction description is required'),
-    duration: z.string().default('10–12 min'),
+    duration: z.string().default('5–8 min'),
     ctaButton: z.string().default('Begin Assessment'),
   }),
   domains: z.array(domainSchema).min(1, 'At least 1 domain is required'),
