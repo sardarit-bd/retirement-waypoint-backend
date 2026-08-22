@@ -44,11 +44,14 @@ class AssessmentSubmissionService {
 
     // 7. Fetch previous submission for comparison (before saving new one)
     const now = new Date();
-    const previousSubmission = await AssessmentSubmissionRepository.findPreviousByEmailAndAssessment(
-      submissionData.participant.email,
-      assessment._id,
-      now
-    );
+    const participantEmail = (submissionData.participant?.email || '').toLowerCase().trim();
+    const previousSubmission = participantEmail
+      ? await AssessmentSubmissionRepository.findPreviousByEmailAndAssessment(
+          participantEmail,
+          assessment._id,
+          now
+        )
+      : null;
 
     // 8. Prepare submission data
     const submission = {
@@ -56,7 +59,7 @@ class AssessmentSubmissionService {
       assessmentSlug: assessment.slug,
       participant: {
         name: submissionData.participant.name.trim(),
-        email: submissionData.participant.email.toLowerCase().trim(),
+        email: participantEmail,
       },
       userId: submissionData.userId || null,
       answers: submissionData.answers,
