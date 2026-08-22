@@ -44,11 +44,14 @@ class AssessmentSubmissionService {
 
     // 7. Fetch previous submission for comparison (before saving new one)
     const now = new Date();
-    const previousSubmission = await AssessmentSubmissionRepository.findPreviousByEmailAndAssessment(
-      submissionData.participant.email,
-      assessment._id,
-      now
-    );
+    const participantEmail = (submissionData.participant?.email || '').toLowerCase().trim();
+    const previousSubmission = participantEmail
+      ? await AssessmentSubmissionRepository.findPreviousByEmailAndAssessment(
+          participantEmail,
+          assessment._id,
+          now
+        )
+      : null;
 
     // 8. Prepare submission data
     const submission = {
@@ -56,7 +59,7 @@ class AssessmentSubmissionService {
       assessmentSlug: assessment.slug,
       participant: {
         name: submissionData.participant.name.trim(),
-        email: submissionData.participant.email.toLowerCase().trim(),
+        email: participantEmail,
       },
       userId: submissionData.userId || null,
       answers: submissionData.answers,
@@ -249,72 +252,122 @@ class AssessmentSubmissionService {
     const submissions = await AssessmentSubmissionRepository.findForExport(query);
     const rows = [];
 
-    for (const submission of submissions) {
-      const assessment = submission.assessmentId || {};
-      const questionInfoById = {};
-      const domainInfoById = {};
+    const ASSESSMENT_TYPE_MAP = {
+      'pre-retiree': 1,
+      'recent-retiree': 2,
+      'established-retiree': 3,
+    };
 
-      for (const domain of assessment.domains || []) {
-        domainInfoById[domain.id] = domain;
-        for (const question of domain.questions || []) {
-          questionInfoById[question.id] = question;
+    const EXPORT_HEADERS = [
+      'Assessment Type',
+      'User Name',
+      'User Email',
+      'Submission Date',
+      'Q1',
+      'Q2',
+      'Q3',
+      'COMMENT1',
+      'Q4',
+      'Q5',
+      'Q6',
+      'COMMENT2',
+      'Q7',
+      'Q8',
+      'Q9',
+      'COMMENT3',
+      'Q10',
+      'Q11',
+      'Q12',
+      'COMMENT4',
+      'Q13',
+      'Q14',
+      'Q15',
+      'COMMENT5',
+    ];
+
+    const buildQuestionAndCommentFields = (assessment = {}, submission = {}) => {
+      const answerByQuestionId = {};
+      for (const answer of submission.answers || []) {
+        if (answer?.questionId) {
+          answerByQuestionId[answer.questionId] = answer;
         }
       }
 
+      const reflectionByDomainId = {};
+      for (const reflection of submission.reflections || []) {
+        if (reflection?.domainId) {
+          reflectionByDomainId[reflection.domainId] = reflection;
+        }
+      }
+
+      const fields = {};
+      let questionCounter = 1;
+      let domainCounter = 1;
+
+      for (const domain of assessment.domains || []) {
+        for (const question of domain.questions || []) {
+          const answer = answerByQuestionId[question.id];
+          fields[`Q${questionCounter}`] =
+            answer && answer.score !== undefined && answer.score !== null ? answer.score : '';
+          questionCounter++;
+        }
+
+        const reflection = reflectionByDomainId[domain.id];
+        fields[`COMMENT${domainCounter}`] = reflection?.answer || '';
+        domainCounter++;
+      }
+
+      for (let i = 1; i <= 15; i++) {
+        if (!(`Q${i}` in fields)) {
+          fields[`Q${i}`] = '';
+        }
+      }
+      for (let i = 1; i <= 5; i++) {
+        if (!(`COMMENT${i}` in fields)) {
+          fields[`COMMENT${i}`] = '';
+        }
+      }
+
+      return fields;
+    };
+
+    for (const submission of submissions) {
+      const assessment = submission.assessmentId || {};
+      const slug = submission.assessmentSlug || assessment.slug;
+      const assessmentType = (slug && ASSESSMENT_TYPE_MAP[slug] !== undefined) ? ASSESSMENT_TYPE_MAP[slug] : '';
+      const qcFields = buildQuestionAndCommentFields(assessment, submission);
+
       const row = {
-        'Assessment Name': assessment.hero?.title || assessment.introduction?.title || '',
-        'Assessment Type': assessment.introduction?.badge || '',
-        'Assessment Slug': submission.assessmentSlug || assessment.slug || '',
+        'Assessment Type': assessmentType,
         'User Name': submission.participant?.name || '',
         'User Email': submission.participant?.email || '',
         'Submission Date': submission.completedAt ? new Date(submission.completedAt).toISOString() : '',
-        'Score': submission.overallScore ?? '',
-        'Result': submission.resultRange?.title || '',
-        'Result Description': submission.resultRange?.description || '',
+        'Q1': qcFields.Q1,
+        'Q2': qcFields.Q2,
+        'Q3': qcFields.Q3,
+        'COMMENT1': qcFields.COMMENT1,
+        'Q4': qcFields.Q4,
+        'Q5': qcFields.Q5,
+        'Q6': qcFields.Q6,
+        'COMMENT2': qcFields.COMMENT2,
+        'Q7': qcFields.Q7,
+        'Q8': qcFields.Q8,
+        'Q9': qcFields.Q9,
+        'COMMENT3': qcFields.COMMENT3,
+        'Q10': qcFields.Q10,
+        'Q11': qcFields.Q11,
+        'Q12': qcFields.Q12,
+        'COMMENT4': qcFields.COMMENT4,
+        'Q13': qcFields.Q13,
+        'Q14': qcFields.Q14,
+        'Q15': qcFields.Q15,
+        'COMMENT5': qcFields.COMMENT5,
       };
-
-      for (const answer of submission.answers || []) {
-        const question = questionInfoById[answer.questionId];
-        const label = question?.text || answer.questionId;
-        const option = question?.options?.find((item) => item.value === answer.value);
-        row[`Answer: ${label}`] = option?.label || answer.value;
-        row[`Answer Score: ${label}`] = answer.score ?? '';
-      }
-
-      for (const reflection of submission.reflections || []) {
-        const label = reflection.question || reflection.domainId;
-        row[`Reflection: ${label}`] = reflection.answer || '';
-      }
-
-      for (const domainScore of submission.domainScores || []) {
-        const domain = domainInfoById[domainScore.domainId];
-        const label = domain?.label || domainScore.domainLabel || domainScore.domainKey || domainScore.domainId;
-        row[`Domain Score: ${label}`] = domainScore.score ?? '';
-        row[`Domain Percentage: ${label}`] = domainScore.percentage ?? '';
-      }
 
       rows.push(row);
     }
 
-    const baseHeaders = [
-      'Assessment Name',
-      'Assessment Type',
-      'Assessment Slug',
-      'User Name',
-      'User Email',
-      'Submission Date',
-      'Score',
-      'Result',
-      'Result Description',
-    ];
-    const headers = [...baseHeaders];
-    for (const row of rows) {
-      for (const key of Object.keys(row)) {
-        if (!headers.includes(key)) headers.push(key);
-      }
-    }
-
-    const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+    const worksheet = XLSX.utils.json_to_sheet(rows, { header: EXPORT_HEADERS });
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Assessment Responses');
     const format = query.format || 'xlsx';
