@@ -71,7 +71,7 @@ const assessments = {
       title: "Are You Ready for What Retirement Really Requires?",
       subtitle: "Planning to retire in 3–5 years",
       description: "Retirement is more than a financial transition. This assessment helps you understand your emotional, psychological, and lifestyle readiness before entering your next chapter.",
-      duration: "10–12 min",
+      duration: "5–8 min",
       ctaButton: "Begin Assessment",
     },
     domains: transformDomains([
@@ -182,7 +182,7 @@ const assessments = {
       title: "How Well Are You Navigating the New Terrain of Retirement?",
       subtitle: "Retired in the past 5 years",
       description: "The early years of retirement are one of the most important psychological transitions of adult life. This assessment helps you understand how well you are adapting emotionally, socially, and personally.",
-      duration: "10–12 min",
+      duration: "5–8 min",
       ctaButton: "Begin Assessment",
     },
     domains: transformDomains([
@@ -293,7 +293,7 @@ const assessments = {
       title: "Are You Thriving in Retirement — or Simply Existing?",
       subtitle: "Retired 5 or more years",
       description: "Retirement evolves over time. This assessment explores whether your retirement years continue to provide meaning, engagement, connection, and growth.",
-      duration: "10–12 min",
+      duration: "5–8 min",
       ctaButton: "Begin Assessment",
     },
     domains: transformDomains([
