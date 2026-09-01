@@ -17,6 +17,7 @@ import { AssessmentLandingRoutes } from '../modules/assessment-landing/assessmen
 import { AssessmentSubmissionAdminRoutes } from '../modules/assessment-submission/index.js';
 import { ContactRoutes, ContactAdminRoutes } from '../modules/contact/contact-index.js';
 import { NewsletterRoutes, NewsletterAdminRoutes } from '../modules/newsletter/index.js';
+import { HomeCmsRoutes } from '../modules/home-cms/index.js';
 
 const router = express.Router();
 
@@ -44,6 +45,7 @@ router.use('/refunds', RefundRoutes);
 router.use('/assessments', AssessmentRoutes);
 router.use('/assessment-submissions', AssessmentSubmissionRoutes);
 router.use('/assessment-landing', AssessmentLandingRoutes);
+router.use('/home-cms', HomeCmsRoutes);
 router.use('/dashboard', DashboardRoutes);
 router.use('/admin/assessment-participants', AssessmentSubmissionAdminRoutes);
 router.use('/contact', ContactRoutes);
