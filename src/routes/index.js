@@ -20,6 +20,7 @@ import { NewsletterRoutes, NewsletterAdminRoutes } from '../modules/newsletter/i
 import { HomeCmsRoutes } from '../modules/home-cms/index.js';
 import { AboutCmsRoutes } from '../modules/about-cms/index.js';
 import { CoachingCmsRoutes } from '../modules/coaching-cms/index.js';
+import { ContactCmsRoutes } from '../modules/contact-cms/index.js';
 
 const router = express.Router();
 
@@ -50,6 +51,7 @@ router.use('/assessment-landing', AssessmentLandingRoutes);
 router.use('/home-cms', HomeCmsRoutes);
 router.use('/about-cms', AboutCmsRoutes);
 router.use('/coaching-cms', CoachingCmsRoutes);
+router.use('/contact-cms', ContactCmsRoutes);
 router.use('/dashboard', DashboardRoutes);
 router.use('/admin/assessment-participants', AssessmentSubmissionAdminRoutes);
 router.use('/contact', ContactRoutes);
