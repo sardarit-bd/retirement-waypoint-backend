@@ -159,6 +159,11 @@ const homeCmsSchema = new mongoose.Schema(
       ],
     },
     newsletter: {
+      backgroundImage: {
+        type: String,
+        default: '/images/newsletter-bg.jpg',
+        trim: true,
+      },
       title: {
         type: String,
         default: 'Stay Up to Date With Our Newsletter',
@@ -320,6 +325,7 @@ const defaultHomeCmsData = {
     ],
   },
   newsletter: {
+    backgroundImage: '/images/newsletter-bg.jpg',
     title: 'Stay Up to Date With Our Newsletter',
     subtitle:
       'Our retirement transition insights are designed to guide you through every step of the process.',

@@ -88,6 +88,7 @@ export const updateHomeCmsValidation = z.object({
         .optional(),
       newsletter: z
         .object({
+          backgroundImage: z.string().optional(),
           title: z.string().optional(),
           subtitle: z.string().optional(),
         })
