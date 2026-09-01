@@ -258,34 +258,61 @@ class AssessmentSubmissionService {
       'established-retiree': 3,
     };
 
-    const EXPORT_HEADERS = [
+    const baseHeaders = [
       'Assessment Type',
       'User Name',
       'User Email',
       'Submission Date',
-      'Q1',
-      'Q2',
-      'Q3',
-      'COMMENT1',
-      'Q4',
-      'Q5',
-      'Q6',
-      'COMMENT2',
-      'Q7',
-      'Q8',
-      'Q9',
-      'COMMENT3',
-      'Q10',
-      'Q11',
-      'Q12',
-      'COMMENT4',
-      'Q13',
-      'Q14',
-      'Q15',
-      'COMMENT5',
     ];
 
-    const buildQuestionAndCommentFields = (assessment = {}, submission = {}) => {
+    // 1. Determine dynamic columns across all submissions being exported
+    const dynamicHeadersSet = [];
+
+    for (const submission of submissions) {
+      const assessment = submission.assessmentId || {};
+      const domains = assessment.domains || [];
+
+      let qIndex = 1;
+      let cIndex = 1;
+
+      for (const domain of domains) {
+        const questions = domain.questions || [];
+        for (let i = 0; i < questions.length; i++) {
+          const qKey = `Q${qIndex}`;
+          if (!dynamicHeadersSet.includes(qKey)) {
+            dynamicHeadersSet.push(qKey);
+          }
+          qIndex++;
+        }
+        const cKey = `COMMENT${cIndex}`;
+        if (!dynamicHeadersSet.includes(cKey)) {
+          dynamicHeadersSet.push(cKey);
+        }
+        cIndex++;
+      }
+    }
+
+    // Default fallback to at least Q1-Q15 and COMMENT1-COMMENT5 if no submissions had domain metadata
+    if (dynamicHeadersSet.length === 0) {
+      for (let i = 1; i <= 15; i++) {
+        dynamicHeadersSet.push(`Q${i}`);
+        if (i % 3 === 0) {
+          dynamicHeadersSet.push(`COMMENT${i / 3}`);
+        }
+      }
+    }
+
+    const exportHeaders = [...baseHeaders, ...dynamicHeadersSet];
+
+    // 2. Build rows dynamically
+    for (const submission of submissions) {
+      const assessment = submission.assessmentId || {};
+      const slug = submission.assessmentSlug || assessment.slug;
+      const assessmentType =
+        slug && ASSESSMENT_TYPE_MAP[slug] !== undefined
+          ? ASSESSMENT_TYPE_MAP[slug]
+          : slug || '';
+
       const answerByQuestionId = {};
       for (const answer of submission.answers || []) {
         if (answer?.questionId) {
@@ -294,80 +321,70 @@ class AssessmentSubmissionService {
       }
 
       const reflectionByDomainId = {};
+      const reflectionByDomainKey = {};
       for (const reflection of submission.reflections || []) {
         if (reflection?.domainId) {
           reflectionByDomainId[reflection.domainId] = reflection;
         }
-      }
-
-      const fields = {};
-      let questionCounter = 1;
-      let domainCounter = 1;
-
-      for (const domain of assessment.domains || []) {
-        for (const question of domain.questions || []) {
-          const answer = answerByQuestionId[question.id];
-          fields[`Q${questionCounter}`] =
-            answer && answer.score !== undefined && answer.score !== null ? answer.score : '';
-          questionCounter++;
-        }
-
-        const reflection = reflectionByDomainId[domain.id];
-        fields[`COMMENT${domainCounter}`] = reflection?.answer || '';
-        domainCounter++;
-      }
-
-      for (let i = 1; i <= 15; i++) {
-        if (!(`Q${i}` in fields)) {
-          fields[`Q${i}`] = '';
+        if (reflection?.domainKey) {
+          reflectionByDomainKey[reflection.domainKey] = reflection;
         }
       }
-      for (let i = 1; i <= 5; i++) {
-        if (!(`COMMENT${i}` in fields)) {
-          fields[`COMMENT${i}`] = '';
-        }
-      }
-
-      return fields;
-    };
-
-    for (const submission of submissions) {
-      const assessment = submission.assessmentId || {};
-      const slug = submission.assessmentSlug || assessment.slug;
-      const assessmentType = (slug && ASSESSMENT_TYPE_MAP[slug] !== undefined) ? ASSESSMENT_TYPE_MAP[slug] : '';
-      const qcFields = buildQuestionAndCommentFields(assessment, submission);
 
       const row = {
         'Assessment Type': assessmentType,
         'User Name': submission.participant?.name || '',
         'User Email': submission.participant?.email || '',
-        'Submission Date': submission.completedAt ? new Date(submission.completedAt).toISOString() : '',
-        'Q1': qcFields.Q1,
-        'Q2': qcFields.Q2,
-        'Q3': qcFields.Q3,
-        'COMMENT1': qcFields.COMMENT1,
-        'Q4': qcFields.Q4,
-        'Q5': qcFields.Q5,
-        'Q6': qcFields.Q6,
-        'COMMENT2': qcFields.COMMENT2,
-        'Q7': qcFields.Q7,
-        'Q8': qcFields.Q8,
-        'Q9': qcFields.Q9,
-        'COMMENT3': qcFields.COMMENT3,
-        'Q10': qcFields.Q10,
-        'Q11': qcFields.Q11,
-        'Q12': qcFields.Q12,
-        'COMMENT4': qcFields.COMMENT4,
-        'Q13': qcFields.Q13,
-        'Q14': qcFields.Q14,
-        'Q15': qcFields.Q15,
-        'COMMENT5': qcFields.COMMENT5,
+        'Submission Date': submission.completedAt
+          ? new Date(submission.completedAt).toISOString()
+          : '',
       };
+
+      // Initialize all dynamic columns with empty string
+      for (const header of dynamicHeadersSet) {
+        row[header] = '';
+      }
+
+      let qCounter = 1;
+      let cCounter = 1;
+
+      const domains = assessment.domains || [];
+      if (domains.length > 0) {
+        for (const domain of domains) {
+          for (const question of domain.questions || []) {
+            const answer = answerByQuestionId[question.id];
+            const qKey = `Q${qCounter}`;
+            if (answer && answer.score !== undefined && answer.score !== null) {
+              row[qKey] = answer.score;
+            } else if (answer && answer.value !== undefined && answer.value !== null) {
+              row[qKey] = answer.value;
+            }
+            qCounter++;
+          }
+
+          const reflection =
+            reflectionByDomainId[domain.id] ||
+            reflectionByDomainKey[domain.key] ||
+            (submission.reflections && submission.reflections[cCounter - 1]);
+          const cKey = `COMMENT${cCounter}`;
+          row[cKey] = reflection?.answer || '';
+          cCounter++;
+        }
+      } else {
+        (submission.answers || []).forEach((ans, idx) => {
+          const qKey = `Q${idx + 1}`;
+          row[qKey] = ans.score ?? ans.value ?? '';
+        });
+        (submission.reflections || []).forEach((ref, idx) => {
+          const cKey = `COMMENT${idx + 1}`;
+          row[cKey] = ref.answer || '';
+        });
+      }
 
       rows.push(row);
     }
 
-    const worksheet = XLSX.utils.json_to_sheet(rows, { header: EXPORT_HEADERS });
+    const worksheet = XLSX.utils.json_to_sheet(rows, { header: exportHeaders });
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Assessment Responses');
     const format = query.format || 'xlsx';
@@ -382,7 +399,8 @@ class AssessmentSubmissionService {
 
     return {
       buffer: XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }),
-      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      contentType:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       filename: `assessment-responses-${new Date().toISOString().slice(0, 10)}.xlsx`,
     };
   }
