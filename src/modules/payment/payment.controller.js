@@ -4,6 +4,10 @@ import PaymentService from "./payment.service.js";
 import ApiError from "../../utils/ApiError.js";
 
 const createCheckoutSession = catchAsync(async (req, res) => {
+  if (req.user?.role === "admin") {
+    throw new ApiError(403, "Administrators cannot purchase their own books.");
+  }
+
   const { orderId } = req.body;
   console.log("REQ ORDER ID =", orderId);
   console.log("USER ID =", req.user.id);
@@ -21,6 +25,10 @@ const createCheckoutSession = catchAsync(async (req, res) => {
 });
 
 const retryPayment = catchAsync(async (req, res) => {
+  if (req.user?.role === "admin") {
+    throw new ApiError(403, "Administrators cannot purchase their own books.");
+  }
+
   const { orderId } = req.params;
   const result = await PaymentService.retryPayment(orderId, req.user.id);
 

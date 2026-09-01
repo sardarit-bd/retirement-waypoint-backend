@@ -4,6 +4,10 @@ import OrderService from "./order.service.js";
 import ApiError from "../../utils/ApiError.js";
 
 const createOrder = catchAsync(async (req, res) => {
+  if (req.user?.role === "admin") {
+    throw new ApiError(403, "Administrators cannot purchase their own books.");
+  }
+
   const order = await OrderService.applyCouponToOrder(req.user.id, req.body);
 
   sendResponse(res, {
