@@ -146,6 +146,37 @@ const getUserAnalytics = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * Get assessment analytics
+ * GET /api/admin/analytics/assessments
+ */
+const getAssessmentAnalytics = catchAsync(async (req, res) => {
+  const query = req.validatedQuery || req.query;
+  const data = await AnalyticsService.getAssessmentAnalytics(query);
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "Assessment analytics retrieved successfully",
+    data,
+  });
+});
+
+/**
+ * Get subscriber and contact growth analytics
+ * GET /api/admin/analytics/growth
+ */
+const getGrowthAnalytics = catchAsync(async (req, res) => {
+  const data = await AnalyticsService.getGrowthAnalytics();
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "Growth analytics retrieved successfully",
+    data,
+  });
+});
+
 export const AnalyticsController = {
   getOverview,
   getRevenueAnalytics,
@@ -156,4 +187,6 @@ export const AnalyticsController = {
   getReviewAnalytics,
   getCouponAnalytics,
   getUserAnalytics,
+  getAssessmentAnalytics,
+  getGrowthAnalytics,
 };

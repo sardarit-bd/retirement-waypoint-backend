@@ -82,4 +82,16 @@ router.get(
   AnalyticsController.getUserAnalytics
 );
 
+// Assessment Analytics
+router.get(
+  "/assessments",
+  AnalyticsController.getAssessmentAnalytics
+);
+
+// Growth Analytics
+router.get(
+  "/growth",
+  AnalyticsController.getGrowthAnalytics
+);
+
 export const AnalyticsRoutes = router;

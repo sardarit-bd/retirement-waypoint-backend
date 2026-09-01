@@ -9,6 +9,9 @@ import { Review } from "../review/review.model.js";
 import { Coupon } from "../coupon/coupon.model.js";
 import { CouponUsage } from "../coupon/couponUsage.model.js";
 import { UserProfile } from "../auth/auth.model.js";
+import { AssessmentSubmission } from "../assessment-submission/assessmentSubmission.model.js";
+import { NewsletterSubscriber } from "../newsletter/newsletter.model.js";
+import { Contact } from "../contact/contact.model.js";
 import ApiError from "../../utils/ApiError.js";
 
 class AnalyticsServiceClass {
@@ -914,6 +917,157 @@ class AnalyticsServiceClass {
       newUsersThisMonth: monthUsers,
       mostActiveUsers: sortedUsers,
       repeatBuyers,
+    };
+  }
+
+  // ==================== ASSESSMENT ANALYTICS ====================
+
+  /**
+   * Get assessment analytics with readiness distribution & domain breakdowns
+   */
+  async getAssessmentAnalytics(query = {}) {
+    const { dateFrom, dateTo } = query;
+    const dateFilter = this.getDateRangeFilter(dateFrom, dateTo);
+
+    const submissions = await AssessmentSubmission.find(dateFilter).sort({ completedAt: -1 });
+
+    const totalSubmissions = submissions.length;
+    const avgScore =
+      totalSubmissions > 0
+        ? Math.round(
+            (submissions.reduce((sum, s) => sum + (s.overallScore || 0), 0) /
+              totalSubmissions) *
+              10
+          ) / 10
+        : 0;
+
+    // Readiness Breakdown (by resultRange.title or fallback groups)
+    const rangeCounts = {};
+    const domainAggregate = {};
+
+    submissions.forEach((sub) => {
+      const rangeTitle = sub.resultRange?.title || "General Readiness";
+      rangeCounts[rangeTitle] = (rangeCounts[rangeTitle] || 0) + 1;
+
+      if (sub.domainScores && Array.isArray(sub.domainScores)) {
+        sub.domainScores.forEach((ds) => {
+          const key = ds.domainLabel || ds.domainKey || "Domain";
+          if (!domainAggregate[key]) {
+            domainAggregate[key] = { total: 0, count: 0 };
+          }
+          domainAggregate[key].total +=
+            ds.percentage || (ds.score / (ds.maxScore || 10)) * 100 || 0;
+          domainAggregate[key].count += 1;
+        });
+      }
+    });
+
+    const readinessDistribution = Object.entries(rangeCounts).map(
+      ([name, value]) => ({
+        name,
+        value,
+        percentage:
+          totalSubmissions > 0
+            ? Math.round((value / totalSubmissions) * 100)
+            : 0,
+      })
+    );
+
+    // Default distribution when no submissions yet
+    const fallbackDistribution = [
+      { name: "Purpose & Meaning", value: 0, percentage: 25 },
+      { name: "Lifestyle & Structure", value: 0, percentage: 25 },
+      { name: "Transition Readiness", value: 0, percentage: 25 },
+      { name: "Vitality & Growth", value: 0, percentage: 25 },
+    ];
+
+    const domainAverages = Object.entries(domainAggregate).map(
+      ([domain, data]) => ({
+        domain,
+        averagePercentage:
+          data.count > 0 ? Math.round(data.total / data.count) : 0,
+      })
+    );
+
+    return {
+      totalSubmissions,
+      averageScore: avgScore,
+      readinessDistribution:
+        readinessDistribution.length > 0
+          ? readinessDistribution
+          : fallbackDistribution,
+      domainAverages,
+      recentSubmissions: submissions.slice(0, 5).map((s) => ({
+        id: s._id,
+        participantName: s.participant?.name || "Anonymous",
+        participantEmail: s.participant?.email || "",
+        score: s.overallScore,
+        resultTitle: s.resultRange?.title || "Complete",
+        completedAt: s.completedAt,
+      })),
+    };
+  }
+
+  // ==================== GROWTH ANALYTICS ====================
+
+  /**
+   * Get 12-month subscriber and contact growth trend
+   */
+  async getGrowthAnalytics() {
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
+    twelveMonthsAgo.setDate(1);
+    twelveMonthsAgo.setHours(0, 0, 0, 0);
+
+    const [subscribersByMonth, contactsByMonth] = await Promise.all([
+      NewsletterSubscriber.aggregate([
+        { $match: { createdAt: { $gte: twelveMonthsAgo } } },
+        {
+          $group: {
+            _id: { year: { $year: "$createdAt" }, month: { $month: "$createdAt" } },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { "_id.year": 1, "_id.month": 1 } },
+      ]),
+      Contact.aggregate([
+        { $match: { createdAt: { $gte: twelveMonthsAgo } } },
+        {
+          $group: {
+            _id: { year: { $year: "$createdAt" }, month: { $month: "$createdAt" } },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { "_id.year": 1, "_id.month": 1 } },
+      ]),
+    ]);
+
+    const months = [];
+    const now = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = d.getFullYear();
+      const month = d.getMonth() + 1;
+      const monthKey = `${year}-${String(month).padStart(2, "0")}`;
+      const monthLabel = d.toLocaleString("en-US", { month: "short" });
+
+      const subMatch = subscribersByMonth.find(
+        (s) => s._id.year === year && s._id.month === month
+      );
+      const conMatch = contactsByMonth.find(
+        (c) => c._id.year === year && c._id.month === month
+      );
+
+      months.push({
+        month: monthKey,
+        label: monthLabel,
+        subscribers: subMatch?.count || 0,
+        contacts: conMatch?.count || 0,
+      });
+    }
+
+    return {
+      growth: months,
     };
   }
 }
