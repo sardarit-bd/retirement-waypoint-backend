@@ -3,24 +3,41 @@ import cloudinary from '../../config/cloudinary.js';
 import ApiError from '../../utils/ApiError.js';
 
 class UploadServiceClass {
-  async uploadFile(fileBuffer, options = {}) {
-    if (!fileBuffer) {
-      throw new ApiError(400, 'No file buffer provided');
+  /**
+   * Upload single file buffer to Cloudinary
+   */
+  async uploadFile(fileOrBuffer, userId, options = {}) {
+    // If options was passed as second argument
+    let actualOptions = options;
+    let actualUserId = userId;
+
+    if (typeof userId === 'object' && !options.folder) {
+      actualOptions = userId;
+      actualUserId = null;
+    }
+
+    const buffer = Buffer.isBuffer(fileOrBuffer)
+      ? fileOrBuffer
+      : fileOrBuffer?.buffer;
+
+    if (!buffer) {
+      throw new ApiError(400, 'No valid file buffer provided for upload');
     }
 
     return new Promise((resolve, reject) => {
       const uploadOptions = {
-        folder: options.folder || 'retirement-waypoint/uploads',
-        resource_type: options.resource_type || 'auto',
-        public_id: options.public_id,
-        transformation: options.transformations || [],
-        ...options,
+        folder: actualOptions.folder || 'retirement-waypoint/uploads',
+        resource_type: actualOptions.resource_type || 'auto',
+        public_id: actualOptions.public_id,
+        transformation: actualOptions.transformations || [],
+        ...actualOptions,
       };
 
       const uploadStream = cloudinary.uploader.upload_stream(
         uploadOptions,
         (error, result) => {
           if (error) {
+            console.error('❌ Cloudinary upload stream error:', error);
             reject(new ApiError(500, `Cloudinary upload failed: ${error.message}`));
           } else {
             resolve({
@@ -37,10 +54,46 @@ class UploadServiceClass {
         },
       );
 
-      Readable.from(fileBuffer).pipe(uploadStream);
+      // Stream buffer into Cloudinary uploadStream
+      Readable.from(buffer).pipe(uploadStream);
     });
   }
 
+  /**
+   * Upload multiple files to Cloudinary
+   */
+  async uploadMultipleFiles(files = [], userId, options = {}) {
+    if (!files || files.length === 0) {
+      throw new ApiError(400, 'No files provided');
+    }
+
+    const uploadPromises = files.map((file) =>
+      this.uploadFile(file, userId, options)
+        .then((result) => ({ status: 'fulfilled', value: result }))
+        .catch((error) => ({ status: 'rejected', reason: error.message }))
+    );
+
+    const results = await Promise.all(uploadPromises);
+
+    const successful = results
+      .filter((r) => r.status === 'fulfilled')
+      .map((r) => r.value);
+    const failed = results
+      .filter((r) => r.status === 'rejected')
+      .map((r) => r.reason);
+
+    return {
+      successful,
+      failed,
+      total: files.length,
+      successCount: successful.length,
+      failureCount: failed.length,
+    };
+  }
+
+  /**
+   * Delete file from Cloudinary
+   */
   async deleteFile(publicId) {
     if (!publicId) {
       throw new ApiError(400, 'Public ID is required');
@@ -55,8 +108,11 @@ class UploadServiceClass {
     }
   }
 
+  /**
+   * Upload with custom validation
+   */
   async uploadFileWithValidation(file, options = {}) {
-    if (!file || !file.buffer) {
+    if (!file || (!file.buffer && !Buffer.isBuffer(file))) {
       throw new ApiError(400, 'Invalid file provided');
     }
 
@@ -74,7 +130,7 @@ class UploadServiceClass {
       );
     }
 
-    return this.uploadFile(file.buffer, options);
+    return this.uploadFile(file, options);
   }
 }
 

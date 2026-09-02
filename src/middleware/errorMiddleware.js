@@ -32,10 +32,11 @@ const errorMiddleware = (err, req, res, next) => {
     error = new ApiError(400, message);
   }
 
-  if (err instanceof multer.MulterError) {
-    const message = err.code === "LIMIT_FILE_SIZE"
-      ? "Image must be 5MB or smaller"
-      : err.message;
+  if (err instanceof multer.MulterError || err.name === 'MulterError') {
+    const message =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? 'File size exceeds the 5MB limit. Please upload a smaller image.'
+        : err.message || 'File upload error';
     error = new ApiError(400, message);
   }
 

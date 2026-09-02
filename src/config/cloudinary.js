@@ -41,12 +41,13 @@ export const getCloudinaryInfo = () => {
 
 // Upload with progress tracking
 export const uploadWithProgress = async (fileBuffer, options = {}) => {
+  const { Readable } = await import('stream');
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: options.folder || 'retirement-waypoint',
         resource_type: options.resource_type || 'auto',
-        ...options
+        ...options,
       },
       (error, result) => {
         if (error) {
@@ -56,10 +57,8 @@ export const uploadWithProgress = async (fileBuffer, options = {}) => {
         }
       }
     );
-    
-    const Readable = require('stream').Readable;
-    const readableStream = Readable.from(fileBuffer);
-    readableStream.pipe(uploadStream);
+
+    Readable.from(fileBuffer).pipe(uploadStream);
   });
 };
 
