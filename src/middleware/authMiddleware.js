@@ -27,6 +27,29 @@ export const protect = catchAsync(async (req, res, next) => {
   next();
 });
 
+export const optionalAuth = catchAsync(async (req, res, next) => {
+  try {
+    const session = await auth.api.getSession({
+      headers: req.headers,
+    });
+
+    if (session && !session.user?.banned) {
+      req.user = session.user;
+      req.session = session.session;
+      req.auth = {
+        userId: session.user.id,
+        role: session.user.role || "user",
+        user: session.user,
+        session: session.session,
+      };
+    }
+  } catch (error) {
+    // Continue as guest if session check fails
+  }
+
+  next();
+});
+
 export const restrictTo = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.auth?.role || "user")) {

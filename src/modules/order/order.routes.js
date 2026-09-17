@@ -9,15 +9,25 @@ import {
   updateOrderStatusValidation,
   validate,
 } from "./order.validation.js";
-import { protect, restrictTo } from "../../middleware/authMiddleware.js";
+import { protect, restrictTo, optionalAuth } from "../../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// All order routes require authentication
+// Order creation supports both authenticated users and guests
+router.post(
+  "/",
+  optionalAuth,
+  validate(createOrderValidation),
+  OrderController.createOrder
+);
+
+// Public tokenized download route for digital book delivery
+router.get("/download/:token", OrderController.downloadByToken);
+
+// All remaining order routes require authentication
 router.use(protect);
 
 // User routes
-router.post("/", validate(createOrderValidation), OrderController.createOrder);
 router.get("/my-orders", validate(getMyOrdersValidation), OrderController.getMyOrders);
 router.get("/:id", validate(getOrderByIdValidation), OrderController.getOrderById);
 

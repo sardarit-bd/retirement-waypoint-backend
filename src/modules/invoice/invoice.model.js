@@ -10,7 +10,15 @@ const invoiceSchema = new mongoose.Schema(
     },
     userId: {
       type: String,
-      required: [true, "User ID is required"],
+      required: false,
+      default: null,
+      index: true,
+    },
+    guestEmail: {
+      type: String,
+      default: null,
+      trim: true,
+      lowercase: true,
       index: true,
     },
     invoiceNumber: {

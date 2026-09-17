@@ -5,20 +5,22 @@ import {
   retryPaymentValidation,
   validate,
 } from "./payment.validation.js";
-import { protect } from "../../middleware/authMiddleware.js";
+import { protect, optionalAuth } from "../../middleware/authMiddleware.js";
 
 const router = express.Router();
 
 router.post("/webhook", PaymentController.webhookHandler);
 
-// ✅ Protected routes
-router.use(protect);
-
+// Checkout session creation supports both authenticated users and guests
 router.post(
   "/create-checkout-session",
+  optionalAuth,
   validate(createCheckoutSessionValidation),
   PaymentController.createCheckoutSession
 );
+
+// Protected routes below
+router.use(protect);
 
 router.post(
   "/retry/:orderId",

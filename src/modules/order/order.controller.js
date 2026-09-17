@@ -8,7 +8,8 @@ const createOrder = catchAsync(async (req, res) => {
     throw new ApiError(403, "Administrators cannot purchase their own books.");
   }
 
-  const order = await OrderService.applyCouponToOrder(req.user.id, req.body);
+  const userId = req.user?.id || null;
+  const order = await OrderService.applyCouponToOrder(userId, req.body);
 
   sendResponse(res, {
     success: true,
@@ -95,6 +96,27 @@ const updateOrderStatus = catchAsync(async (req, res) => {
   });
 });
 
+const downloadByToken = catchAsync(async (req, res) => {
+  const { token } = req.params;
+  const clientInfo = {
+    ipAddress: req.ip || req.headers["x-forwarded-for"],
+    userAgent: req.headers["user-agent"],
+  };
+
+  const result = await OrderService.downloadByToken(token, req.query, clientInfo);
+
+  if (req.query.redirect === "true") {
+    return res.redirect(result.downloadUrl);
+  }
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "Download URL generated successfully",
+    data: result,
+  });
+});
+
 export const OrderController = {
   createOrder,
   getOrderById,
@@ -102,4 +124,5 @@ export const OrderController = {
   getAllOrders,
   updatePaymentStatus,
   updateOrderStatus,
+  downloadByToken,
 };

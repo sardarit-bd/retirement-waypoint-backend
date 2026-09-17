@@ -4,8 +4,16 @@ const purchaseSchema = new mongoose.Schema(
   {
     userId: {
       type: String,
-      required: [true, "User ID is required"],
+      required: false,
+      default: null,
       index: true,
+    },
+    customerEmail: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      index: true,
+      default: null,
     },
     bookId: {
       type: String,
@@ -35,8 +43,10 @@ const purchaseSchema = new mongoose.Schema(
   }
 );
 
-// Compound index to prevent duplicate purchases
-purchaseSchema.index({ userId: 1, bookId: 1 }, { unique: true });
+// Compound index to prevent duplicate purchases (sparse for guest orders)
+purchaseSchema.index({ userId: 1, bookId: 1 }, { unique: true, sparse: true });
+purchaseSchema.index({ orderId: 1, bookId: 1 }, { unique: true });
+purchaseSchema.index({ customerEmail: 1, bookId: 1 });
 
 // Compound index for user purchases
 purchaseSchema.index({ userId: 1, purchasedAt: -1 });

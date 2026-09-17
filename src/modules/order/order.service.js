@@ -6,11 +6,18 @@ import { Book } from "../book/book.model.js";
 import { Purchase } from "../purchase/purchase.model.js";
 import CouponService from "../coupon/coupon.service.js";
 import AuthService from "../auth/auth.service.js";
+import cloudinary from "../../config/cloudinary.js";
+import { DownloadLog } from "../download/downloadLog.model.js";
 
 class OrderServiceClass {
   // Create order with items
   async createOrder(userId, orderData) {
-    const { items: clientItems, notes } = orderData;
+    const { items: clientItems, notes, guestName, guestEmail } = orderData;
+    const isGuest = !userId;
+
+    if (isGuest && !guestEmail) {
+      throw new ApiError(400, "Guest email is required for checkout");
+    }
 
     if (!clientItems || clientItems.length === 0) {
       throw new ApiError(400, "Order must contain at least one item");
@@ -19,23 +26,25 @@ class OrderServiceClass {
     const bookIds = clientItems.map((item) => item.bookId);
 
     // ==========================
-    // CHECK ALREADY PURCHASED
+    // CHECK ALREADY PURCHASED (Logged-in users)
     // ==========================
-    const existingPurchases = await Purchase.find({
-      userId,
-      bookId: { $in: bookIds },
-      accessStatus: "ACTIVE",
-    });
+    if (userId) {
+      const existingPurchases = await Purchase.find({
+        userId,
+        bookId: { $in: bookIds },
+        accessStatus: "ACTIVE",
+      });
 
-    if (existingPurchases.length > 0) {
-      const purchasedBookIds = existingPurchases.map(
-        (purchase) => purchase.bookId,
-      );
+      if (existingPurchases.length > 0) {
+        const purchasedBookIds = existingPurchases.map(
+          (purchase) => purchase.bookId,
+        );
 
-      throw new ApiError(
-        400,
-        `You have already purchased these books: ${purchasedBookIds.join(", ")}`,
-      );
+        throw new ApiError(
+          400,
+          `You have already purchased these books: ${purchasedBookIds.join(", ")}`,
+        );
+      }
     }
 
     // ==========================
@@ -102,7 +111,10 @@ class OrderServiceClass {
       const order = await Order.create(
         [
           {
-            userId,
+            userId: userId || null,
+            guestName: isGuest ? guestName || null : null,
+            guestEmail: isGuest ? guestEmail : null,
+            isGuest,
             subtotal,
             totalAmount,
             notes: notes || null,
@@ -149,8 +161,8 @@ class OrderServiceClass {
     // Fetch order items
     const items = await OrderItem.find({ orderId: order._id });
 
-    // Fetch user from Better Auth
-    const user = await AuthService.getAuthUserById(order.userId);
+    // Fetch user from Better Auth if registered
+    const user = order.userId ? await AuthService.getAuthUserById(order.userId) : null;
 
     return {
       ...order.toObject(),
@@ -162,7 +174,14 @@ class OrderServiceClass {
             email: user.email,
             image: user.image,
           }
-        : null,
+        : order.isGuest
+          ? {
+              id: null,
+              name: order.guestName,
+              email: order.guestEmail,
+              image: null,
+            }
+          : null,
     };
   }
 
@@ -335,7 +354,12 @@ class OrderServiceClass {
    * Apply coupon to order
    */
   async applyCouponToOrder(userId, orderData) {
-    const { items: clientItems, notes, couponCode } = orderData;
+    const { items: clientItems, notes, couponCode, guestName, guestEmail } = orderData;
+    const isGuest = !userId;
+
+    if (isGuest && !guestEmail) {
+      throw new ApiError(400, "Guest email is required for checkout");
+    }
 
     if (!clientItems || clientItems.length === 0) {
       throw new ApiError(400, "Order must contain at least one item");
@@ -343,19 +367,21 @@ class OrderServiceClass {
 
     const bookIds = clientItems.map((item) => item.bookId);
 
-    // Check already purchased
-    const existingPurchases = await Purchase.find({
-      userId,
-      bookId: { $in: bookIds },
-      accessStatus: "ACTIVE",
-    });
+    // Check already purchased (for logged-in users)
+    if (userId) {
+      const existingPurchases = await Purchase.find({
+        userId,
+        bookId: { $in: bookIds },
+        accessStatus: "ACTIVE",
+      });
 
-    if (existingPurchases.length > 0) {
-      const purchasedBookIds = existingPurchases.map((p) => p.bookId);
-      throw new ApiError(
-        400,
-        `You have already purchased these books: ${purchasedBookIds.join(", ")}`,
-      );
+      if (existingPurchases.length > 0) {
+        const purchasedBookIds = existingPurchases.map((p) => p.bookId);
+        throw new ApiError(
+          400,
+          `You have already purchased these books: ${purchasedBookIds.join(", ")}`,
+        );
+      }
     }
 
     // Fetch books
@@ -426,7 +452,10 @@ class OrderServiceClass {
       const order = await Order.create(
         [
           {
-            userId,
+            userId: userId || null,
+            guestName: isGuest ? guestName || null : null,
+            guestEmail: isGuest ? guestEmail : null,
+            isGuest,
             couponId,
             couponCode: finalCouponCode,
             discountAmount,
@@ -480,26 +509,91 @@ class OrderServiceClass {
     );
   }
 
-  // async getOrderById(orderId) {
-  //   console.log("ORDER ID =", orderId);
-  //   console.log("TYPE =", typeof orderId);
+  /**
+   * Download book via secure guest download token
+   */
+  async downloadByToken(token, query = {}, clientInfo = {}) {
+    if (!token) {
+      throw new ApiError(400, "Download token is required");
+    }
 
-  //   const order = await Order.findById(orderId);
+    const order = await Order.findOne({
+      downloadToken: token,
+      paymentStatus: "PAID",
+    });
 
-  //   console.log("FOUND ORDER =", order);
+    if (!order) {
+      throw new ApiError(404, "Invalid download token or unpaid order");
+    }
 
-  //   if (!order) {
-  //     throw new ApiError(404, "Order not found");
-  //   }
+    if (order.downloadTokenExpiresAt && new Date() > order.downloadTokenExpiresAt) {
+      throw new ApiError(410, "Download link has expired. Please contact support.");
+    }
 
-  //   const items = await OrderItem.find({ orderId: order._id });
+    // Get order items
+    const orderItems = await OrderItem.find({ orderId: order._id });
+    if (!orderItems || orderItems.length === 0) {
+      throw new ApiError(404, "No books found in this order");
+    }
 
-  //   return {
-  //     ...order.toObject(),
-  //     items,
-  //     // checkoutUrl is already included via toObject()
-  //   };
-  // }
+    // Identify target book
+    let targetItem = orderItems[0];
+    if (query.bookId) {
+      const match = orderItems.find((item) => item.bookId === query.bookId);
+      if (match) targetItem = match;
+    }
+
+    // Fetch book with raw PDF public ID
+    const book = await Book.findById(targetItem.bookId).select("+pdfFilePublicId");
+    if (!book) {
+      throw new ApiError(404, "Book not found");
+    }
+
+    if (!book.pdfFilePublicId) {
+      throw new ApiError(500, "Book PDF is currently not available for download");
+    }
+
+    // Increment download count on the order
+    await Order.findByIdAndUpdate(order._id, {
+      $inc: { downloadCount: 1 },
+    });
+
+    // Find purchase reference if one was created
+    const purchase = await Purchase.findOne({
+      orderId: order._id,
+      bookId: targetItem.bookId,
+    });
+
+    // Record DownloadLog entry
+    await DownloadLog.create({
+      userId: order.userId || null,
+      guestEmail: order.guestEmail || null,
+      orderId: order._id,
+      purchaseId: purchase?._id || null,
+      bookId: targetItem.bookId,
+      ipAddress: clientInfo.ipAddress || null,
+      userAgent: clientInfo.userAgent || null,
+      downloadedAt: new Date(),
+    });
+
+    // Generate secure Cloudinary signed raw URL (valid 15 minutes)
+    const downloadFileName = `${book.slug || "retirement-waypoint"}.pdf`;
+    const signedUrl = cloudinary.url(book.pdfFilePublicId, {
+      resource_type: "raw",
+      secure: true,
+      sign_url: true,
+      expires_at: Math.floor(Date.now() / 1000) + 900, // 15 minutes
+    });
+
+    return {
+      downloadUrl: signedUrl,
+      fileName: downloadFileName,
+      bookTitle: book.title,
+      orderNumber: order.orderNumber,
+      orderId: order._id,
+      expiresIn: "15 minutes",
+    };
+  }
 }
 
 const OrderService = new OrderServiceClass();

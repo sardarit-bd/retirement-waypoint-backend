@@ -21,7 +21,25 @@ const orderSchema = new mongoose.Schema(
   {
     userId: {
       type: String,
-      required: [true, "User ID is required"],
+      required: false,
+      default: null,
+      index: true,
+    },
+    guestName: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    guestEmail: {
+      type: String,
+      default: null,
+      trim: true,
+      lowercase: true,
+      index: true,
+    },
+    isGuest: {
+      type: Boolean,
+      default: false,
       index: true,
     },
     orderNumber: {
@@ -93,6 +111,21 @@ const orderSchema = new mongoose.Schema(
     checkoutUrl: {
       type: String,
       default: null,
+    },
+    // Secure token download for guests
+    downloadToken: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    downloadTokenExpiresAt: {
+      type: Date,
+      default: null,
+    },
+    downloadCount: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
   },
   {

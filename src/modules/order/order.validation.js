@@ -8,8 +8,10 @@ export const createOrderValidation = z.object({
         bookId: z.string().min(1, "Book ID is required"),
       })
     ),
-    notes: z.string().max(500).optional(),
-    couponCode: z.string().max(50).optional(),
+    guestName: z.string().trim().max(100).optional().nullable(),
+    guestEmail: z.string().trim().email("Invalid guest email address").optional().nullable(),
+    notes: z.string().max(500).optional().nullable(),
+    couponCode: z.string().max(50).optional().nullable(),
   }),
 });
 

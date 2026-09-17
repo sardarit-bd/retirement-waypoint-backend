@@ -9,11 +9,12 @@ const createCheckoutSession = catchAsync(async (req, res) => {
   }
 
   const { orderId } = req.body;
+  const userId = req.user?.id || null;
   console.log("REQ ORDER ID =", orderId);
-  console.log("USER ID =", req.user.id);
+  console.log("USER ID =", userId);
   const result = await PaymentService.createCheckoutSession(
     orderId,
-    req.user.id,
+    userId,
   );
 
   sendResponse(res, {
