@@ -12,7 +12,11 @@ import ReviewService from "./review.service.js";
  * POST /api/reviews
  */
 const createReview = catchAsync(async (req, res) => {
-  const review = await ReviewService.createReview(req.user.id, req.body);
+  const review = await ReviewService.createReview(
+    req.user.id,
+    req.body,
+    req.user?.email,
+  );
 
   sendResponse(res, {
     success: true,

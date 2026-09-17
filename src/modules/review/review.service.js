@@ -2,24 +2,74 @@ import mongoose from "mongoose";
 import { Purchase } from "../purchase/purchase.model.js";
 import { Review } from "./review.model.js";
 import { Book } from "../book/book.model.js";
+import { Order } from "../order/order.model.js";
+import { OrderItem } from "../order/orderItem.model.js";
+import AuthService from "../auth/auth.service.js";
 import ApiError from "../../utils/ApiError.js";
 
 class ReviewServiceClass {
   /**
-   * Verify user has purchased the book
+   * Check whether the user has purchased the book (registered or guest order)
+   * Returns boolean (non-blocking)
    */
-  async verifyPurchase(userId, bookId) {
-    const purchase = await Purchase.findOne({
-      userId,
-      bookId,
-      accessStatus: "ACTIVE",
-    });
-
-    if (!purchase) {
-      throw new ApiError(403, "You can only review books you have purchased");
+  async verifyPurchase(userId, bookId, userEmail = null) {
+    // 1. Check active Purchase record
+    if (userId) {
+      const activePurchase = await Purchase.findOne({
+        userId,
+        bookId,
+        accessStatus: "ACTIVE",
+      });
+      if (activePurchase) return true;
     }
 
-    return purchase;
+    // 2. Resolve user email if not supplied
+    let email = userEmail;
+    if (!email && userId) {
+      try {
+        const user = await AuthService.getAuthUserById(userId);
+        email = user?.email || null;
+      } catch {
+        // Continue
+      }
+    }
+
+    // 3. Check customerEmail on Purchase
+    if (email) {
+      const emailPurchase = await Purchase.findOne({
+        customerEmail: email.toLowerCase(),
+        bookId,
+        accessStatus: "ACTIVE",
+      });
+      if (emailPurchase) return true;
+    }
+
+    // 4. Check completed orders (either matching userId or guestEmail)
+    const orderConditions = [];
+    if (userId) {
+      orderConditions.push({ userId });
+    }
+    if (email) {
+      orderConditions.push({ guestEmail: email.toLowerCase() });
+    }
+
+    if (orderConditions.length > 0) {
+      const paidOrders = await Order.find({
+        paymentStatus: "PAID",
+        $or: orderConditions,
+      }).select("_id");
+
+      if (paidOrders.length > 0) {
+        const orderIds = paidOrders.map((o) => o._id);
+        const orderItem = await OrderItem.findOne({
+          orderId: { $in: orderIds },
+          bookId,
+        });
+        if (orderItem) return true;
+      }
+    }
+
+    return false;
   }
 
   async getMyReview(userId, bookId) {
@@ -76,17 +126,21 @@ class ReviewServiceClass {
   /**
    * Create review
    */
-  async createReview(userId, reviewData) {
+  async createReview(userId, reviewData, userEmail = null) {
     const { bookId, rating, title, comment } = reviewData;
-
-    // Verify purchase
-    await this.verifyPurchase(userId, bookId);
 
     // Check if already reviewed
     const existingReview = await this.hasReviewed(userId, bookId);
     if (existingReview) {
       throw new ApiError(400, "You have already reviewed this book");
     }
+
+    // Determine if user is a verified buyer (cross-referencing user and guest orders)
+    const isVerifiedPurchase = await this.verifyPurchase(
+      userId,
+      bookId,
+      userEmail,
+    );
 
     // Create review
     const review = await Review.create({
@@ -95,7 +149,7 @@ class ReviewServiceClass {
       rating,
       title,
       comment,
-      isVerifiedPurchase: true,
+      isVerifiedPurchase: Boolean(isVerifiedPurchase),
       isApproved: false,
     });
 
