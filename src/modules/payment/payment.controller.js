@@ -100,8 +100,21 @@ const webhookHandler = catchAsync(async (req, res) => {
   }
 });
 
+const verifySession = catchAsync(async (req, res) => {
+  const { session_id, orderId } = req.query;
+  const result = await PaymentService.verifySession(session_id, orderId);
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "Payment session verified successfully",
+    data: result,
+  });
+});
+
 export const PaymentController = {
   createCheckoutSession,
   retryPayment,
   webhookHandler,
+  verifySession,
 };

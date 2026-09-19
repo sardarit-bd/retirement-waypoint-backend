@@ -8,7 +8,7 @@ import { OrderItem } from "../order/orderItem.model.js";
 import OrderService from "../order/order.service.js";
 import PurchaseService from "../purchase/purchase.service.js";
 import InvoiceService from "../invoice/invoice.service.js";
-import AuthService from "../auth/auth.service.js";
+import { Book } from "../book/book.model.js";
 import { sendEmail } from "../../config/mailer.js";
 
 class PaymentServiceClass {
@@ -457,6 +457,110 @@ class PaymentServiceClass {
     return {
       checkoutUrl: session.url,
       sessionId: session.id,
+    };
+  }
+
+  /**
+   * Verify session after checkout redirect and return order and download info
+   */
+  async verifySession(sessionId, orderId) {
+    if (!sessionId && !orderId) {
+      throw new ApiError(400, "session_id or orderId is required");
+    }
+
+    let order = null;
+
+    // 1. If sessionId is provided, retrieve Stripe session and verify
+    if (sessionId) {
+      try {
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+        const resolvedOrderId =
+          session.metadata?.orderId || session.client_reference_id || orderId;
+
+        if (resolvedOrderId) {
+          order = await Order.findById(resolvedOrderId);
+        }
+
+        // If Stripe session is paid, ensure order is fulfilled
+        if (session.payment_status === "paid" && order) {
+          if (order.paymentStatus !== "PAID") {
+            await this.handlePaymentSuccess(session);
+            order = await Order.findById(resolvedOrderId);
+          }
+        }
+      } catch (error) {
+        console.error("Stripe session retrieval error:", error.message);
+      }
+    }
+
+    // 2. If order not resolved yet, lookup by orderId
+    if (!order && orderId) {
+      order = await Order.findById(orderId);
+      if (order && order.stripeSessionId && order.paymentStatus !== "PAID") {
+        try {
+          const session = await stripe.checkout.sessions.retrieve(
+            order.stripeSessionId
+          );
+          if (session.payment_status === "paid") {
+            await this.handlePaymentSuccess(session);
+            order = await Order.findById(orderId);
+          }
+        } catch (error) {
+          console.error("Stripe session check error:", error.message);
+        }
+      }
+    }
+
+    if (!order) {
+      throw new ApiError(404, "Order not found");
+    }
+
+    // Ensure order has an active download token if PAID
+    if (order.paymentStatus === "PAID") {
+      const isExpired =
+        order.downloadTokenExpiresAt &&
+        new Date() > order.downloadTokenExpiresAt;
+      if (!order.downloadToken || isExpired) {
+        order.downloadToken = crypto.randomBytes(32).toString("hex");
+        order.downloadTokenExpiresAt = new Date(
+          Date.now() + 7 * 24 * 60 * 60 * 1000
+        ); // 7 days
+        await order.save();
+      }
+    }
+
+    // Get order items and book details
+    const orderItems = await OrderItem.find({ orderId: order._id });
+    let book = null;
+    if (orderItems.length > 0) {
+      book = await Book.findById(orderItems[0].bookId).select(
+        "title slug coverImage authorName"
+      );
+    }
+
+    const downloadUrl = order.downloadToken
+      ? `/api/public/books/download?token=${order.downloadToken}${
+          book ? `&bookId=${book._id}` : ""
+        }`
+      : null;
+
+    return {
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      paymentStatus: order.paymentStatus,
+      isGuest: order.isGuest,
+      guestEmail: order.guestEmail,
+      downloadToken: order.downloadToken,
+      downloadUrl,
+      book: book
+        ? {
+            id: book._id,
+            title: book.title,
+            slug: book.slug,
+            coverImage: book.coverImage,
+            authorName: book.authorName,
+          }
+        : null,
     };
   }
 }

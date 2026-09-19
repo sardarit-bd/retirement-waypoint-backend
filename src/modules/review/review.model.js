@@ -5,10 +5,12 @@ const reviewSchema = new mongoose.Schema(
     userId: {
       type: String,
       required: [true, "User ID is required"],
+      ref: "User",
       index: true,
     },
     bookId: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Book",
       required: [true, "Book ID is required"],
       index: true,
     },
@@ -30,9 +32,19 @@ const reviewSchema = new mongoose.Schema(
       trim: true,
       maxlength: [2000, "Comment cannot exceed 2000 characters"],
     },
+    status: {
+      type: String,
+      enum: ["PENDING", "APPROVED", "REJECTED"],
+      default: "PENDING",
+      index: true,
+    },
+    isVerifiedBuyer: {
+      type: Boolean,
+      default: true,
+    },
     isVerifiedPurchase: {
       type: Boolean,
-      default: false,
+      default: true,
     },
     isApproved: {
       type: Boolean,
@@ -55,8 +67,10 @@ const reviewSchema = new mongoose.Schema(
 
 // Compound indexes
 reviewSchema.index({ userId: 1, bookId: 1 }, { unique: true });
+reviewSchema.index({ bookId: 1, status: 1 });
 reviewSchema.index({ bookId: 1, isApproved: 1 });
 reviewSchema.index({ bookId: 1, rating: 1 });
+reviewSchema.index({ status: 1, createdAt: -1 });
 reviewSchema.index({ isApproved: 1, createdAt: -1 });
 
 // Ensure virtuals are included

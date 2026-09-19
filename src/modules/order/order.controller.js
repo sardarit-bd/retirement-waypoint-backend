@@ -107,18 +107,19 @@ const downloadByToken = catchAsync(async (req, res) => {
     userAgent: req.headers["user-agent"],
   };
 
-  const result = await OrderService.downloadByToken(token, req.query, clientInfo);
-
-  if (req.query.redirect === "true") {
-    return res.redirect(result.downloadUrl);
+  // If json metadata is specifically requested
+  if (req.query.json === "true") {
+    const result = await OrderService.downloadByToken(token, req.query, clientInfo);
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: "Download URL generated successfully",
+      data: result,
+    });
   }
 
-  sendResponse(res, {
-    success: true,
-    statusCode: 200,
-    message: "Download URL generated successfully",
-    data: result,
-  });
+  // Stream PDF directly to client
+  await OrderService.streamPdfByToken(token, req.query, clientInfo, res);
 });
 
 export const OrderController = {

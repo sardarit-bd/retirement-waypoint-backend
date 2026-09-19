@@ -10,6 +10,7 @@ import {
   getReviewByIdValidation,
   getReviewSummaryValidation,
   rejectReviewValidation,
+  updateReviewStatusValidation,
   updateReviewValidation,
   validate,
 } from "./review.validation.js";
@@ -78,7 +79,7 @@ router.get(
   ReviewController.getReviewById,
 );
 
-// ==================== ADMIN ROUTES ====================
+// ==================== ADMIN ROUTES (mounted under /reviews/admin/reviews) ====================
 
 // Get all reviews (admin)
 router.get(
@@ -104,6 +105,21 @@ router.patch(
   ReviewController.adminRejectReview,
 );
 
+// Update review status (admin) - APPROVED or REJECTED
+router.patch(
+  "/admin/reviews/:id/status",
+  restrictTo("admin"),
+  validate(updateReviewStatusValidation),
+  ReviewController.adminUpdateReviewStatus,
+);
+
+router.patch(
+  "/admin/reviews/:reviewId/status",
+  restrictTo("admin"),
+  validate(updateReviewStatusValidation),
+  ReviewController.adminUpdateReviewStatus,
+);
+
 // Delete review (admin)
 router.delete(
   "/admin/reviews/:id",
@@ -113,3 +129,45 @@ router.delete(
 );
 
 export const ReviewRoutes = router;
+
+// ==================== DIRECT ADMIN ROUTER (mounted under /admin/reviews) ====================
+const directAdminRouter = express.Router();
+directAdminRouter.use(protect, restrictTo("admin"));
+
+directAdminRouter.get(
+  "/",
+  validate(adminGetReviewsValidation),
+  ReviewController.adminGetAllReviews,
+);
+
+directAdminRouter.patch(
+  "/:id/approve",
+  validate(approveReviewValidation),
+  ReviewController.adminApproveReview,
+);
+
+directAdminRouter.patch(
+  "/:id/reject",
+  validate(rejectReviewValidation),
+  ReviewController.adminRejectReview,
+);
+
+directAdminRouter.patch(
+  "/:id/status",
+  validate(updateReviewStatusValidation),
+  ReviewController.adminUpdateReviewStatus,
+);
+
+directAdminRouter.patch(
+  "/:reviewId/status",
+  validate(updateReviewStatusValidation),
+  ReviewController.adminUpdateReviewStatus,
+);
+
+directAdminRouter.delete(
+  "/:id",
+  validate(deleteReviewValidation),
+  ReviewController.adminDeleteReview,
+);
+
+export const ReviewAdminRoutes = directAdminRouter;

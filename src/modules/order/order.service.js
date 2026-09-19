@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { Readable } from "stream";
 import { Order } from "./order.model.js";
 import { OrderItem } from "./orderItem.model.js";
 import ApiError from "../../utils/ApiError.js";
@@ -511,7 +512,112 @@ class OrderServiceClass {
   }
 
   /**
-   * Download book via secure guest download token
+   * Stream book PDF directly to client response
+   */
+  async streamPdfByToken(token, query = {}, clientInfo = {}, res) {
+    if (!token) {
+      throw new ApiError(400, "Download token is required");
+    }
+
+    const order = await Order.findOne({
+      downloadToken: token,
+      paymentStatus: "PAID",
+    });
+
+    if (!order) {
+      throw new ApiError(404, "Invalid download token or unpaid order");
+    }
+
+    if (order.downloadTokenExpiresAt && new Date() > order.downloadTokenExpiresAt) {
+      throw new ApiError(410, "Download link has expired. Please contact support.");
+    }
+
+    // Get order items
+    const orderItems = await OrderItem.find({ orderId: order._id });
+    if (!orderItems || orderItems.length === 0) {
+      throw new ApiError(404, "No books found in this order");
+    }
+
+    // Identify target book
+    let targetItem = orderItems[0];
+    if (query.bookId) {
+      const match = orderItems.find(
+        (item) => item.bookId?.toString() === query.bookId?.toString()
+      );
+      if (match) targetItem = match;
+    }
+
+    // Fetch book with PDF file details
+    const book = await Book.findById(targetItem.bookId).select("+pdfFile +pdfFilePublicId");
+    if (!book) {
+      throw new ApiError(404, "Book not found");
+    }
+
+    // Determine upstream source URL: prefer stored direct URL, fallback to Cloudinary signed URL
+    let sourceUrl = book.pdfFile;
+    if (!sourceUrl && book.pdfFilePublicId) {
+      sourceUrl = cloudinary.url(book.pdfFilePublicId, {
+        resource_type: "raw",
+        secure: true,
+        sign_url: true,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      });
+    }
+
+    if (!sourceUrl) {
+      throw new ApiError(500, "Book PDF is currently not available for download");
+    }
+
+    // Fetch the PDF stream from storage
+    const upstreamRes = await fetch(sourceUrl);
+    if (!upstreamRes.ok) {
+      console.error(`❌ Upstream PDF fetch failed: ${upstreamRes.status} ${upstreamRes.statusText} for URL: ${sourceUrl}`);
+      throw new ApiError(502, "Failed to retrieve book file from storage");
+    }
+
+    // Increment download count on the order
+    await Order.findByIdAndUpdate(order._id, {
+      $inc: { downloadCount: 1 },
+    });
+
+    // Find purchase reference if one was created
+    const purchase = await Purchase.findOne({
+      orderId: order._id,
+      bookId: targetItem.bookId,
+    });
+
+    // Record DownloadLog entry
+    await DownloadLog.create({
+      userId: order.userId || null,
+      guestEmail: order.guestEmail || null,
+      orderId: order._id,
+      purchaseId: purchase?._id || null,
+      bookId: targetItem.bookId,
+      ipAddress: clientInfo.ipAddress || null,
+      userAgent: clientInfo.userAgent || null,
+      downloadedAt: new Date(),
+    });
+
+    // Format clean safe filename for download
+    const safeTitle = (book.title || book.slug || "retirement-waypoint")
+      .replace(/[^a-zA-Z0-9_\-]/g, "_")
+      .replace(/_+/g, "_");
+    const fileName = `${safeTitle}.pdf`;
+
+    // Set streaming headers
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    const contentLength = upstreamRes.headers.get("content-length");
+    if (contentLength) {
+      res.setHeader("Content-Length", contentLength);
+    }
+
+    // Pipe stream directly to Express client response
+    Readable.fromWeb(upstreamRes.body).pipe(res);
+  }
+
+  /**
+   * Download book via secure guest download token (metadata)
    */
   async downloadByToken(token, query = {}, clientInfo = {}) {
     if (!token) {
@@ -540,17 +646,29 @@ class OrderServiceClass {
     // Identify target book
     let targetItem = orderItems[0];
     if (query.bookId) {
-      const match = orderItems.find((item) => item.bookId === query.bookId);
+      const match = orderItems.find(
+        (item) => item.bookId?.toString() === query.bookId?.toString()
+      );
       if (match) targetItem = match;
     }
 
-    // Fetch book with raw PDF public ID
-    const book = await Book.findById(targetItem.bookId).select("+pdfFilePublicId");
+    // Fetch book with raw PDF public ID and direct URL
+    const book = await Book.findById(targetItem.bookId).select("+pdfFile +pdfFilePublicId");
     if (!book) {
       throw new ApiError(404, "Book not found");
     }
 
-    if (!book.pdfFilePublicId) {
+    let downloadUrl = book.pdfFile;
+    if (!downloadUrl && book.pdfFilePublicId) {
+      downloadUrl = cloudinary.url(book.pdfFilePublicId, {
+        resource_type: "raw",
+        secure: true,
+        sign_url: true,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      });
+    }
+
+    if (!downloadUrl) {
       throw new ApiError(500, "Book PDF is currently not available for download");
     }
 
@@ -577,22 +695,18 @@ class OrderServiceClass {
       downloadedAt: new Date(),
     });
 
-    // Generate secure Cloudinary signed raw URL (valid 15 minutes)
-    const downloadFileName = `${book.slug || "retirement-waypoint"}.pdf`;
-    const signedUrl = cloudinary.url(book.pdfFilePublicId, {
-      resource_type: "raw",
-      secure: true,
-      sign_url: true,
-      expires_at: Math.floor(Date.now() / 1000) + 900, // 15 minutes
-    });
+    const safeTitle = (book.title || book.slug || "retirement-waypoint")
+      .replace(/[^a-zA-Z0-9_\-]/g, "_")
+      .replace(/_+/g, "_");
+    const downloadFileName = `${safeTitle}.pdf`;
 
     return {
-      downloadUrl: signedUrl,
+      downloadUrl,
       fileName: downloadFileName,
       bookTitle: book.title,
       orderNumber: order.orderNumber,
       orderId: order._id,
-      expiresIn: "15 minutes",
+      expiresIn: "7 days",
     };
   }
 

@@ -87,6 +87,9 @@ publicRouter.get(
 // Get featured books
 publicRouter.get("/featured", BookController.getFeaturedBooks);
 
+// Download full book PDF using download token
+publicRouter.get("/download", BookController.downloadBookByToken);
+
 // Get page-limited preview PDF for a book (published only)
 publicRouter.get(
   "/:slug/preview",

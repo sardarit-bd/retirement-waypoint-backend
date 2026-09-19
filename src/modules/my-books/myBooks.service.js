@@ -3,22 +3,77 @@ import { Purchase } from "../purchase/purchase.model.js";
 import { DownloadLog } from "../download/downloadLog.model.js";
 import { Book } from "../book/book.model.js";
 import { Order } from "../order/order.model.js";
+import { OrderItem } from "../order/orderItem.model.js";
 import { Invoice } from "../invoice/invoice.model.js";
+import AuthService from "../auth/auth.service.js";
 import ApiError from "../../utils/ApiError.js";
 import cloudinary from "../../config/cloudinary.js";
 
 class MyBooksServiceClass {
   /**
    * Check if user has purchased a book (REUSABLE HELPER)
-   * This will be used by Review Module later
+   * Supports both authenticated user purchases and retroactive guest order claiming
    */
-  async hasPurchasedBook(userId, bookId) {
-    const purchase = await Purchase.findOne({
-      userId,
-      bookId,
-      accessStatus: "ACTIVE",
-    });
-    return !!purchase;
+  async hasPurchasedBook(userId, bookId, userEmail = null) {
+    if (!userId && !userEmail) return false;
+
+    // 1. Check active Purchase record for userId
+    if (userId) {
+      const purchase = await Purchase.findOne({
+        userId,
+        bookId,
+        accessStatus: "ACTIVE",
+      });
+      if (purchase) return true;
+    }
+
+    // 2. Resolve user email if not supplied
+    let email = userEmail;
+    if (!email && userId) {
+      try {
+        const user = await AuthService.getAuthUserById(userId);
+        email = user?.email || null;
+      } catch {
+        // Continue
+      }
+    }
+
+    // 3. Check customerEmail on Purchase (e.g. past guest order) and retroactively claim
+    if (email) {
+      const guestPurchase = await Purchase.findOne({
+        customerEmail: email.toLowerCase(),
+        bookId,
+        accessStatus: "ACTIVE",
+      });
+      if (guestPurchase) {
+        if (userId && !guestPurchase.userId) {
+          guestPurchase.userId = userId;
+          await guestPurchase.save();
+        }
+        return true;
+      }
+
+      // 4. Check paid orders matching guest email or userId
+      const orderConditions = [];
+      if (userId) orderConditions.push({ userId });
+      orderConditions.push({ guestEmail: email.toLowerCase() });
+
+      const paidOrders = await Order.find({
+        paymentStatus: "PAID",
+        $or: orderConditions,
+      }).select("_id");
+
+      if (paidOrders.length > 0) {
+        const orderIds = paidOrders.map((o) => o._id);
+        const orderItem = await OrderItem.findOne({
+          orderId: { $in: orderIds },
+          bookId,
+        });
+        if (orderItem) return true;
+      }
+    }
+
+    return false;
   }
 
   /**

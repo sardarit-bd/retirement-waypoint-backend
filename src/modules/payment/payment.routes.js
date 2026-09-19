@@ -19,6 +19,9 @@ router.post(
   PaymentController.createCheckoutSession
 );
 
+// Verify payment checkout session and retrieve order download info
+router.get("/verify-session", PaymentController.verifySession);
+
 // Protected routes below
 router.use(protect);
 

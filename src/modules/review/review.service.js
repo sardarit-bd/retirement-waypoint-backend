@@ -5,77 +5,27 @@ import { Book } from "../book/book.model.js";
 import { Order } from "../order/order.model.js";
 import { OrderItem } from "../order/orderItem.model.js";
 import AuthService from "../auth/auth.service.js";
+import MyBooksService from "../my-books/myBooks.service.js";
 import ApiError from "../../utils/ApiError.js";
 
 class ReviewServiceClass {
   /**
    * Check whether the user has purchased the book (registered or guest order)
-   * Returns boolean (non-blocking)
+   * Delegates to MyBooksService.hasPurchasedBook for consistency
    */
   async verifyPurchase(userId, bookId, userEmail = null) {
-    // 1. Check active Purchase record
-    if (userId) {
-      const activePurchase = await Purchase.findOne({
-        userId,
-        bookId,
-        accessStatus: "ACTIVE",
-      });
-      if (activePurchase) return true;
-    }
-
-    // 2. Resolve user email if not supplied
-    let email = userEmail;
-    if (!email && userId) {
-      try {
-        const user = await AuthService.getAuthUserById(userId);
-        email = user?.email || null;
-      } catch {
-        // Continue
-      }
-    }
-
-    // 3. Check customerEmail on Purchase
-    if (email) {
-      const emailPurchase = await Purchase.findOne({
-        customerEmail: email.toLowerCase(),
-        bookId,
-        accessStatus: "ACTIVE",
-      });
-      if (emailPurchase) return true;
-    }
-
-    // 4. Check completed orders (either matching userId or guestEmail)
-    const orderConditions = [];
-    if (userId) {
-      orderConditions.push({ userId });
-    }
-    if (email) {
-      orderConditions.push({ guestEmail: email.toLowerCase() });
-    }
-
-    if (orderConditions.length > 0) {
-      const paidOrders = await Order.find({
-        paymentStatus: "PAID",
-        $or: orderConditions,
-      }).select("_id");
-
-      if (paidOrders.length > 0) {
-        const orderIds = paidOrders.map((o) => o._id);
-        const orderItem = await OrderItem.findOne({
-          orderId: { $in: orderIds },
-          bookId,
-        });
-        if (orderItem) return true;
-      }
-    }
-
-    return false;
+    return await MyBooksService.hasPurchasedBook(userId, bookId, userEmail);
   }
 
   async getMyReview(userId, bookId) {
+    const bookConditions = [{ bookId: bookId.toString() }];
+    if (mongoose.Types.ObjectId.isValid(bookId)) {
+      bookConditions.push({ bookId: new mongoose.Types.ObjectId(bookId.toString()) });
+    }
+
     return await Review.findOne({
       userId,
-      bookId,
+      $or: bookConditions,
     });
   }
 
@@ -83,19 +33,31 @@ class ReviewServiceClass {
    * Check if user has already reviewed this book
    */
   async hasReviewed(userId, bookId) {
-    const review = await Review.findOne({ userId, bookId });
+    const review = await this.getMyReview(userId, bookId);
     return !!review;
   }
 
   /**
-   * Recalculate book rating statistics
+   * Recalculate book rating statistics (Approved reviews only)
    */
   async recalculateBookStats(bookId) {
+    const bookConditions = [{ bookId: bookId.toString() }];
+    if (mongoose.Types.ObjectId.isValid(bookId)) {
+      bookConditions.push({ bookId: new mongoose.Types.ObjectId(bookId.toString()) });
+    }
+
     const stats = await Review.aggregate([
       {
         $match: {
-          bookId,
-          isApproved: true,
+          $and: [
+            { $or: bookConditions },
+            {
+              $or: [
+                { status: "APPROVED" },
+                { isApproved: true, status: { $ne: "REJECTED" } },
+              ],
+            },
+          ],
         },
       },
       {
@@ -125,31 +87,40 @@ class ReviewServiceClass {
 
   /**
    * Create review
+   * Strictly enforces verified buyer purchase check
    */
   async createReview(userId, reviewData, userEmail = null) {
     const { bookId, rating, title, comment } = reviewData;
 
-    // Check if already reviewed
+    // 1. Check if already reviewed (enforce one review per user per book)
     const existingReview = await this.hasReviewed(userId, bookId);
     if (existingReview) {
       throw new ApiError(400, "You have already reviewed this book");
     }
 
-    // Determine if user is a verified buyer (cross-referencing user and guest orders)
-    const isVerifiedPurchase = await this.verifyPurchase(
+    // 2. Strictly verify purchase using existing service
+    const hasBought = await MyBooksService.hasPurchasedBook(
       userId,
       bookId,
       userEmail,
     );
+    if (!hasBought) {
+      throw new ApiError(
+        403,
+        "Only verified purchasers of this book can submit reviews.",
+      );
+    }
 
-    // Create review
+    // 3. Create review with PENDING status
     const review = await Review.create({
       userId,
       bookId,
       rating,
       title,
       comment,
-      isVerifiedPurchase: Boolean(isVerifiedPurchase),
+      status: "PENDING",
+      isVerifiedBuyer: true,
+      isVerifiedPurchase: true,
       isApproved: false,
     });
 
@@ -165,24 +136,22 @@ class ReviewServiceClass {
       throw new ApiError(404, "Review not found or you don't have permission");
     }
 
-    // Check if already approved - if approved, need re-approval
-    const wasApproved = review.isApproved;
+    const wasApproved = review.isApproved || review.status === "APPROVED";
 
     // Update fields
     if (updateData.rating !== undefined) review.rating = updateData.rating;
     if (updateData.title !== undefined) review.title = updateData.title;
     if (updateData.comment !== undefined) review.comment = updateData.comment;
 
-    // If review was approved, reset approval status
-    if (wasApproved) {
-      review.isApproved = false;
-      review.approvedBy = null;
-      review.approvedAt = null;
-    }
+    // Any edit moves review back to PENDING moderation
+    review.status = "PENDING";
+    review.isApproved = false;
+    review.approvedBy = null;
+    review.approvedAt = null;
 
     await review.save();
 
-    // If it was approved and changed, recalculate stats
+    // If it was previously approved, recalculate stats
     if (wasApproved) {
       await this.recalculateBookStats(review.bookId);
     }
@@ -204,7 +173,7 @@ class ReviewServiceClass {
       throw new ApiError(404, "Review not found or you don't have permission");
     }
 
-    const wasApproved = review.isApproved;
+    const wasApproved = review.isApproved || review.status === "APPROVED";
     const bookId = review.bookId;
 
     await review.deleteOne();
@@ -255,7 +224,7 @@ class ReviewServiceClass {
 
     const enrichedReviews = reviews.map((review) => ({
       ...review.toObject(),
-      book: bookMap.get(review.bookId) || null,
+      book: bookMap.get(review.bookId?.toString()) || null,
     }));
 
     return {
@@ -306,6 +275,7 @@ class ReviewServiceClass {
       search,
       rating,
       approved,
+      status,
       bookId,
       userId,
       sortBy = "createdAt",
@@ -320,8 +290,15 @@ class ReviewServiceClass {
     if (rating) filter.rating = rating;
     if (bookId) filter.bookId = bookId;
     if (userId) filter.userId = userId;
-    if (approved !== undefined) {
-      filter.isApproved = approved === "true";
+
+    if (status) {
+      filter.status = status;
+    } else if (approved !== undefined) {
+      if (approved === "true") {
+        filter.$or = [{ status: "APPROVED" }, { isApproved: true }];
+      } else {
+        filter.$or = [{ status: "PENDING" }, { isApproved: false }];
+      }
     }
 
     // Search in title and comment
@@ -355,7 +332,7 @@ class ReviewServiceClass {
 
     const enrichedReviews = reviews.map((review) => ({
       ...review.toObject(),
-      book: bookMap.get(review.bookId) || null,
+      book: bookMap.get(review.bookId?.toString()) || null,
     }));
 
     return {
@@ -372,46 +349,56 @@ class ReviewServiceClass {
   }
 
   /**
-   * Approve review (admin)
+   * Update review status (admin) - APPROVED or REJECTED
    */
-  async approveReview(reviewId, adminId) {
+  async updateReviewStatus(reviewId, status, adminId = null) {
+    if (!["APPROVED", "REJECTED"].includes(status)) {
+      throw new ApiError(400, "Invalid status. Status must be APPROVED or REJECTED.");
+    }
+
     const review = await Review.findById(reviewId);
     if (!review) {
       throw new ApiError(404, "Review not found");
     }
 
-    if (review.isApproved) {
-      throw new ApiError(400, "Review is already approved");
+    const wasApproved = review.isApproved || review.status === "APPROVED";
+
+    if (status === "APPROVED") {
+      review.status = "APPROVED";
+      review.isApproved = true;
+      review.approvedBy = adminId;
+      review.approvedAt = new Date();
+    } else if (status === "REJECTED") {
+      review.status = "REJECTED";
+      review.isApproved = false;
     }
 
-    review.isApproved = true;
-    review.approvedBy = adminId;
-    review.approvedAt = new Date();
     await review.save();
 
-    // Recalculate book stats
-    await this.recalculateBookStats(review.bookId);
+    // Recalculate book stats if becoming approved or leaving approved status
+    if (status === "APPROVED" || wasApproved) {
+      await this.recalculateBookStats(review.bookId);
+    }
 
     return review;
   }
 
   /**
-   * Reject review (admin)
+   * Approve review (admin)
    */
-  async rejectReview(reviewId) {
-    const review = await Review.findById(reviewId);
-    if (!review) {
-      throw new ApiError(404, "Review not found");
-    }
-
-    // Delete the review
-    await review.deleteOne();
-
-    return { success: true, message: "Review rejected and deleted" };
+  async approveReview(reviewId, adminId) {
+    return await this.updateReviewStatus(reviewId, "APPROVED", adminId);
   }
 
   /**
-   * Get book reviews (public - approved only)
+   * Reject review (admin)
+   */
+  async rejectReview(reviewId, adminId = null) {
+    return await this.updateReviewStatus(reviewId, "REJECTED", adminId);
+  }
+
+  /**
+   * Get book reviews (public - APPROVED strictly only)
    */
   async getBookReviews(bookId, query = {}) {
     const {
@@ -425,9 +412,21 @@ class ReviewServiceClass {
     const limitNumber = Math.min(Math.max(Number(limit) || 20, 1), 100);
     const skip = (pageNumber - 1) * limitNumber;
 
+    const bookConditions = [{ bookId: bookId.toString() }];
+    if (mongoose.Types.ObjectId.isValid(bookId)) {
+      bookConditions.push({ bookId: new mongoose.Types.ObjectId(bookId.toString()) });
+    }
+
     const filter = {
-      bookId,
-      isApproved: true,
+      $and: [
+        { $or: bookConditions },
+        {
+          $or: [
+            { status: "APPROVED" },
+            { isApproved: true, status: { $ne: "REJECTED" } },
+          ],
+        },
+      ],
     };
 
     const sort = {};
@@ -482,7 +481,7 @@ class ReviewServiceClass {
   }
 
   /**
-   * Get review summary (public)
+   * Get review summary (public - APPROVED strictly only)
    */
   async getReviewSummary(bookId) {
     const book = await Book.findById(bookId);
@@ -491,12 +490,24 @@ class ReviewServiceClass {
       throw new ApiError(404, "Book not found");
     }
 
+    const bookConditions = [{ bookId: bookId.toString() }];
+    if (mongoose.Types.ObjectId.isValid(bookId)) {
+      bookConditions.push({ bookId: new mongoose.Types.ObjectId(bookId.toString()) });
+    }
+
     // Get average rating, total reviews & rating breakdown
     const stats = await Review.aggregate([
       {
         $match: {
-          bookId,
-          isApproved: true,
+          $and: [
+            { $or: bookConditions },
+            {
+              $or: [
+                { status: "APPROVED" },
+                { isApproved: true, status: { $ne: "REJECTED" } },
+              ],
+            },
+          ],
         },
       },
       {

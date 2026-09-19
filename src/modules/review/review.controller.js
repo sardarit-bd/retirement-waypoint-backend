@@ -205,6 +205,28 @@ const getReviewSummary = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * Admin: Update review status
+ * PATCH /api/admin/reviews/:reviewId/status
+ */
+const adminUpdateReviewStatus = catchAsync(async (req, res) => {
+  const { reviewId, id } = req.params;
+  const targetId = reviewId || id;
+  const { status } = req.body;
+  const review = await ReviewService.updateReviewStatus(
+    targetId,
+    status,
+    req.user.id,
+  );
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: `Review status updated to ${status} successfully`,
+    data: review,
+  });
+});
+
 export const ReviewController = {
   createReview,
   getMyReview,
@@ -215,6 +237,7 @@ export const ReviewController = {
   adminGetAllReviews,
   adminApproveReview,
   adminRejectReview,
+  adminUpdateReviewStatus,
   adminDeleteReview,
   getBookReviews,
   getReviewSummary,
