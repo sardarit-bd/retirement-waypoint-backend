@@ -8,11 +8,34 @@ import sendResponse from "../../utils/sendResponse.js";
 import ReviewService from "./review.service.js";
 
 /**
+ * Verify guest review token
+ * GET /api/reviews/verify-token
+ */
+const verifyToken = catchAsync(async (req, res) => {
+  const { token, orderId, bookId } = req.query;
+  const result = await ReviewService.verifyReviewToken(token, orderId, bookId);
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "Review token is valid",
+    data: result,
+  });
+});
+
+/**
  * Create review
  * POST /api/reviews
  */
 const createReview = catchAsync(async (req, res) => {
-  const review = await ReviewService.createReview(req.user.id, req.body);
+  const userId = req.user?.id || null;
+  const userEmail = req.user?.email || null;
+
+  const review = await ReviewService.createReview(
+    userId,
+    req.body,
+    userEmail,
+  );
 
   sendResponse(res, {
     success: true,
@@ -201,7 +224,30 @@ const getReviewSummary = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * Admin: Update review status
+ * PATCH /api/admin/reviews/:reviewId/status
+ */
+const adminUpdateReviewStatus = catchAsync(async (req, res) => {
+  const { reviewId, id } = req.params;
+  const targetId = reviewId || id;
+  const { status } = req.body;
+  const review = await ReviewService.updateReviewStatus(
+    targetId,
+    status,
+    req.user.id,
+  );
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: `Review status updated to ${status} successfully`,
+    data: review,
+  });
+});
+
 export const ReviewController = {
+  verifyToken,
   createReview,
   getMyReview,
   updateReview,
@@ -211,6 +257,7 @@ export const ReviewController = {
   adminGetAllReviews,
   adminApproveReview,
   adminRejectReview,
+  adminUpdateReviewStatus,
   adminDeleteReview,
   getBookReviews,
   getReviewSummary,

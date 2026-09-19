@@ -6,6 +6,7 @@ import { MongoClient } from "mongodb";
 import { UserProfile } from "../modules/auth/auth.model.js";
 import { sendEmail } from "./mailer.js";
 import { authAllowedHosts } from "./origins.js";
+import OrderService from "../modules/order/order.service.js";
 
 // MongoDB connection
 if (!process.env.MONGODB_URI) {
@@ -234,6 +235,40 @@ export const auth = betterAuth({
             },
             { upsert: true },
           );
+
+          if (user?.email) {
+            await OrderService.claimGuestOrders(user.id, user.email);
+          }
+        },
+      },
+    },
+    session: {
+      create: {
+        after: async (session) => {
+          if (session?.userId) {
+            try {
+              const user =
+                (await mongoClient
+                  .db()
+                  .collection("user")
+                  .findOne({ _id: session.userId })) ||
+                (await mongoClient
+                  .db()
+                  .collection("user")
+                  .findOne({ id: session.userId }));
+              if (user?.email) {
+                await OrderService.claimGuestOrders(
+                  user.id || user._id,
+                  user.email,
+                );
+              }
+            } catch (err) {
+              console.error(
+                "Error in session databaseHook guest order claiming:",
+                err,
+              );
+            }
+          }
         },
       },
     },

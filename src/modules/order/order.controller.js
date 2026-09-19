@@ -8,7 +8,8 @@ const createOrder = catchAsync(async (req, res) => {
     throw new ApiError(403, "Administrators cannot purchase their own books.");
   }
 
-  const order = await OrderService.applyCouponToOrder(req.user.id, req.body);
+  const userId = req.user?.id || null;
+  const order = await OrderService.applyCouponToOrder(userId, req.body);
 
   sendResponse(res, {
     success: true,
@@ -39,6 +40,10 @@ const getOrderById = catchAsync(async (req, res) => {
 });
 
 const getMyOrders = catchAsync(async (req, res) => {
+  if (req.user?.id && req.user?.email) {
+    await OrderService.claimGuestOrders(req.user.id, req.user.email);
+  }
+
   const query = req.validatedQuery || req.query;
   const result = await OrderService.getUserOrders(req.user.id, query);
 
@@ -95,6 +100,28 @@ const updateOrderStatus = catchAsync(async (req, res) => {
   });
 });
 
+const downloadByToken = catchAsync(async (req, res) => {
+  const { token } = req.params;
+  const clientInfo = {
+    ipAddress: req.ip || req.headers["x-forwarded-for"],
+    userAgent: req.headers["user-agent"],
+  };
+
+  // If json metadata is specifically requested
+  if (req.query.json === "true") {
+    const result = await OrderService.downloadByToken(token, req.query, clientInfo);
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: "Download URL generated successfully",
+      data: result,
+    });
+  }
+
+  // Stream PDF directly to client
+  await OrderService.streamPdfByToken(token, req.query, clientInfo, res);
+});
+
 export const OrderController = {
   createOrder,
   getOrderById,
@@ -102,4 +129,5 @@ export const OrderController = {
   getAllOrders,
   updatePaymentStatus,
   updateOrderStatus,
+  downloadByToken,
 };

@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import catchAsync from "../../utils/catchAsync.js";
 import sendResponse from "../../utils/sendResponse.js";
 import BookService from "./book.service.js";
+import OrderService from "../order/order.service.js";
 import ApiError from "../../utils/ApiError.js";
 
 const createBook = catchAsync(async (req, res) => {
@@ -183,6 +184,17 @@ const getBookPreview = catchAsync(async (req, res) => {
   res.send(buffer);
 });
 
+// Download purchased book PDF via download token (public proxy stream)
+const downloadBookByToken = catchAsync(async (req, res) => {
+  const token = req.query.token || req.params.token;
+  const clientInfo = {
+    ipAddress: req.ip || req.headers["x-forwarded-for"],
+    userAgent: req.headers["user-agent"],
+  };
+
+  await OrderService.streamPdfByToken(token, req.query, clientInfo, res);
+});
+
 export const BookController = {
   createBook,
   updateBook,
@@ -195,4 +207,5 @@ export const BookController = {
   getFeaturedBooks,
   getPublicBookBySlug,
   getBookPreview,
+  downloadBookByToken,
 };

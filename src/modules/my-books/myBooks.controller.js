@@ -1,12 +1,17 @@
 import catchAsync from "../../utils/catchAsync.js";
 import sendResponse from "../../utils/sendResponse.js";
 import MyBooksService from "../my-books/myBooks.service.js";
+import OrderService from "../order/order.service.js";
 
 /**
  * Get my purchased books
  * GET /api/my-books
  */
 const getMyBooks = catchAsync(async (req, res) => {
+  if (req.user?.id && req.user?.email) {
+    await OrderService.claimGuestOrders(req.user.id, req.user.email);
+  }
+
   const query = req.validatedQuery || req.query;
   const result = await MyBooksService.getUserBooks(req.user.id, query);
 

@@ -1,16 +1,25 @@
 import mongoose from "mongoose";
+import { Readable } from "stream";
 import { Order } from "./order.model.js";
 import { OrderItem } from "./orderItem.model.js";
 import ApiError from "../../utils/ApiError.js";
 import { Book } from "../book/book.model.js";
 import { Purchase } from "../purchase/purchase.model.js";
+import { Invoice } from "../invoice/invoice.model.js";
 import CouponService from "../coupon/coupon.service.js";
 import AuthService from "../auth/auth.service.js";
+import cloudinary from "../../config/cloudinary.js";
+import { DownloadLog } from "../download/downloadLog.model.js";
 
 class OrderServiceClass {
   // Create order with items
   async createOrder(userId, orderData) {
-    const { items: clientItems, notes } = orderData;
+    const { items: clientItems, notes, guestName, guestEmail } = orderData;
+    const isGuest = !userId;
+
+    if (isGuest && !guestEmail) {
+      throw new ApiError(400, "Guest email is required for checkout");
+    }
 
     if (!clientItems || clientItems.length === 0) {
       throw new ApiError(400, "Order must contain at least one item");
@@ -19,23 +28,25 @@ class OrderServiceClass {
     const bookIds = clientItems.map((item) => item.bookId);
 
     // ==========================
-    // CHECK ALREADY PURCHASED
+    // CHECK ALREADY PURCHASED (Logged-in users)
     // ==========================
-    const existingPurchases = await Purchase.find({
-      userId,
-      bookId: { $in: bookIds },
-      accessStatus: "ACTIVE",
-    });
+    if (userId) {
+      const existingPurchases = await Purchase.find({
+        userId,
+        bookId: { $in: bookIds },
+        accessStatus: "ACTIVE",
+      });
 
-    if (existingPurchases.length > 0) {
-      const purchasedBookIds = existingPurchases.map(
-        (purchase) => purchase.bookId,
-      );
+      if (existingPurchases.length > 0) {
+        const purchasedBookIds = existingPurchases.map(
+          (purchase) => purchase.bookId,
+        );
 
-      throw new ApiError(
-        400,
-        `You have already purchased these books: ${purchasedBookIds.join(", ")}`,
-      );
+        throw new ApiError(
+          400,
+          `You have already purchased these books: ${purchasedBookIds.join(", ")}`,
+        );
+      }
     }
 
     // ==========================
@@ -102,7 +113,10 @@ class OrderServiceClass {
       const order = await Order.create(
         [
           {
-            userId,
+            userId: userId || null,
+            guestName: isGuest ? guestName || null : null,
+            guestEmail: isGuest ? guestEmail : null,
+            isGuest,
             subtotal,
             totalAmount,
             notes: notes || null,
@@ -149,8 +163,8 @@ class OrderServiceClass {
     // Fetch order items
     const items = await OrderItem.find({ orderId: order._id });
 
-    // Fetch user from Better Auth
-    const user = await AuthService.getAuthUserById(order.userId);
+    // Fetch user from Better Auth if registered
+    const user = order.userId ? await AuthService.getAuthUserById(order.userId) : null;
 
     return {
       ...order.toObject(),
@@ -162,7 +176,14 @@ class OrderServiceClass {
             email: user.email,
             image: user.image,
           }
-        : null,
+        : order.isGuest
+          ? {
+              id: null,
+              name: order.guestName,
+              email: order.guestEmail,
+              image: null,
+            }
+          : null,
     };
   }
 
@@ -335,7 +356,12 @@ class OrderServiceClass {
    * Apply coupon to order
    */
   async applyCouponToOrder(userId, orderData) {
-    const { items: clientItems, notes, couponCode } = orderData;
+    const { items: clientItems, notes, couponCode, guestName, guestEmail } = orderData;
+    const isGuest = !userId;
+
+    if (isGuest && !guestEmail) {
+      throw new ApiError(400, "Guest email is required for checkout");
+    }
 
     if (!clientItems || clientItems.length === 0) {
       throw new ApiError(400, "Order must contain at least one item");
@@ -343,19 +369,21 @@ class OrderServiceClass {
 
     const bookIds = clientItems.map((item) => item.bookId);
 
-    // Check already purchased
-    const existingPurchases = await Purchase.find({
-      userId,
-      bookId: { $in: bookIds },
-      accessStatus: "ACTIVE",
-    });
+    // Check already purchased (for logged-in users)
+    if (userId) {
+      const existingPurchases = await Purchase.find({
+        userId,
+        bookId: { $in: bookIds },
+        accessStatus: "ACTIVE",
+      });
 
-    if (existingPurchases.length > 0) {
-      const purchasedBookIds = existingPurchases.map((p) => p.bookId);
-      throw new ApiError(
-        400,
-        `You have already purchased these books: ${purchasedBookIds.join(", ")}`,
-      );
+      if (existingPurchases.length > 0) {
+        const purchasedBookIds = existingPurchases.map((p) => p.bookId);
+        throw new ApiError(
+          400,
+          `You have already purchased these books: ${purchasedBookIds.join(", ")}`,
+        );
+      }
     }
 
     // Fetch books
@@ -426,7 +454,10 @@ class OrderServiceClass {
       const order = await Order.create(
         [
           {
-            userId,
+            userId: userId || null,
+            guestName: isGuest ? guestName || null : null,
+            guestEmail: isGuest ? guestEmail : null,
+            isGuest,
             couponId,
             couponCode: finalCouponCode,
             discountAmount,
@@ -480,26 +511,331 @@ class OrderServiceClass {
     );
   }
 
-  // async getOrderById(orderId) {
-  //   console.log("ORDER ID =", orderId);
-  //   console.log("TYPE =", typeof orderId);
+  /**
+   * Stream book PDF directly to client response
+   */
+  async streamPdfByToken(token, query = {}, clientInfo = {}, res) {
+    if (!token) {
+      throw new ApiError(400, "Download token is required");
+    }
 
-  //   const order = await Order.findById(orderId);
+    const order = await Order.findOne({
+      downloadToken: token,
+      paymentStatus: "PAID",
+    });
 
-  //   console.log("FOUND ORDER =", order);
+    if (!order) {
+      throw new ApiError(404, "Invalid download token or unpaid order");
+    }
 
-  //   if (!order) {
-  //     throw new ApiError(404, "Order not found");
-  //   }
+    if (order.downloadTokenExpiresAt && new Date() > order.downloadTokenExpiresAt) {
+      throw new ApiError(410, "Download link has expired. Please contact support.");
+    }
 
-  //   const items = await OrderItem.find({ orderId: order._id });
+    // Get order items
+    const orderItems = await OrderItem.find({ orderId: order._id });
+    if (!orderItems || orderItems.length === 0) {
+      throw new ApiError(404, "No books found in this order");
+    }
 
-  //   return {
-  //     ...order.toObject(),
-  //     items,
-  //     // checkoutUrl is already included via toObject()
-  //   };
-  // }
+    // Identify target book
+    let targetItem = orderItems[0];
+    if (query.bookId) {
+      const match = orderItems.find(
+        (item) => item.bookId?.toString() === query.bookId?.toString()
+      );
+      if (match) targetItem = match;
+    }
+
+    // Fetch book with PDF file details
+    const book = await Book.findById(targetItem.bookId).select("+pdfFile +pdfFilePublicId");
+    if (!book) {
+      throw new ApiError(404, "Book not found");
+    }
+
+    // Determine upstream source URL: prefer stored direct URL, fallback to Cloudinary signed URL
+    let sourceUrl = book.pdfFile;
+    if (!sourceUrl && book.pdfFilePublicId) {
+      sourceUrl = cloudinary.url(book.pdfFilePublicId, {
+        resource_type: "raw",
+        secure: true,
+        sign_url: true,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      });
+    }
+
+    if (!sourceUrl) {
+      throw new ApiError(500, "Book PDF is currently not available for download");
+    }
+
+    // Fetch the PDF stream from storage
+    const upstreamRes = await fetch(sourceUrl);
+    if (!upstreamRes.ok) {
+      console.error(`❌ Upstream PDF fetch failed: ${upstreamRes.status} ${upstreamRes.statusText} for URL: ${sourceUrl}`);
+      throw new ApiError(502, "Failed to retrieve book file from storage");
+    }
+
+    // Increment download count on the order
+    await Order.findByIdAndUpdate(order._id, {
+      $inc: { downloadCount: 1 },
+    });
+
+    // Find purchase reference if one was created
+    const purchase = await Purchase.findOne({
+      orderId: order._id,
+      bookId: targetItem.bookId,
+    });
+
+    // Record DownloadLog entry
+    await DownloadLog.create({
+      userId: order.userId || null,
+      guestEmail: order.guestEmail || null,
+      orderId: order._id,
+      purchaseId: purchase?._id || null,
+      bookId: targetItem.bookId,
+      ipAddress: clientInfo.ipAddress || null,
+      userAgent: clientInfo.userAgent || null,
+      downloadedAt: new Date(),
+    });
+
+    // Format clean safe filename for download
+    const safeTitle = (book.title || book.slug || "retirement-waypoint")
+      .replace(/[^a-zA-Z0-9_\-]/g, "_")
+      .replace(/_+/g, "_");
+    const fileName = `${safeTitle}.pdf`;
+
+    // Set streaming headers
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    const contentLength = upstreamRes.headers.get("content-length");
+    if (contentLength) {
+      res.setHeader("Content-Length", contentLength);
+    }
+
+    // Pipe stream directly to Express client response
+    Readable.fromWeb(upstreamRes.body).pipe(res);
+  }
+
+  /**
+   * Download book via secure guest download token (metadata)
+   */
+  async downloadByToken(token, query = {}, clientInfo = {}) {
+    if (!token) {
+      throw new ApiError(400, "Download token is required");
+    }
+
+    const order = await Order.findOne({
+      downloadToken: token,
+      paymentStatus: "PAID",
+    });
+
+    if (!order) {
+      throw new ApiError(404, "Invalid download token or unpaid order");
+    }
+
+    if (order.downloadTokenExpiresAt && new Date() > order.downloadTokenExpiresAt) {
+      throw new ApiError(410, "Download link has expired. Please contact support.");
+    }
+
+    // Get order items
+    const orderItems = await OrderItem.find({ orderId: order._id });
+    if (!orderItems || orderItems.length === 0) {
+      throw new ApiError(404, "No books found in this order");
+    }
+
+    // Identify target book
+    let targetItem = orderItems[0];
+    if (query.bookId) {
+      const match = orderItems.find(
+        (item) => item.bookId?.toString() === query.bookId?.toString()
+      );
+      if (match) targetItem = match;
+    }
+
+    // Fetch book with raw PDF public ID and direct URL
+    const book = await Book.findById(targetItem.bookId).select("+pdfFile +pdfFilePublicId");
+    if (!book) {
+      throw new ApiError(404, "Book not found");
+    }
+
+    let downloadUrl = book.pdfFile;
+    if (!downloadUrl && book.pdfFilePublicId) {
+      downloadUrl = cloudinary.url(book.pdfFilePublicId, {
+        resource_type: "raw",
+        secure: true,
+        sign_url: true,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      });
+    }
+
+    if (!downloadUrl) {
+      throw new ApiError(500, "Book PDF is currently not available for download");
+    }
+
+    // Increment download count on the order
+    await Order.findByIdAndUpdate(order._id, {
+      $inc: { downloadCount: 1 },
+    });
+
+    // Find purchase reference if one was created
+    const purchase = await Purchase.findOne({
+      orderId: order._id,
+      bookId: targetItem.bookId,
+    });
+
+    // Record DownloadLog entry
+    await DownloadLog.create({
+      userId: order.userId || null,
+      guestEmail: order.guestEmail || null,
+      orderId: order._id,
+      purchaseId: purchase?._id || null,
+      bookId: targetItem.bookId,
+      ipAddress: clientInfo.ipAddress || null,
+      userAgent: clientInfo.userAgent || null,
+      downloadedAt: new Date(),
+    });
+
+    const safeTitle = (book.title || book.slug || "retirement-waypoint")
+      .replace(/[^a-zA-Z0-9_\-]/g, "_")
+      .replace(/_+/g, "_");
+    const downloadFileName = `${safeTitle}.pdf`;
+
+    return {
+      downloadUrl,
+      fileName: downloadFileName,
+      bookTitle: book.title,
+      orderNumber: order.orderNumber,
+      orderId: order._id,
+      expiresIn: "7 days",
+    };
+  }
+
+  /**
+   * Retroactively claim guest orders, purchases, and invoices for an authenticated user
+   * @param {string} userId - Authenticated user's ID
+   * @param {string} email - Authenticated user's email
+   */
+  async claimGuestOrders(userId, email) {
+    if (!userId || !email) {
+      return { ordersClaimed: 0, purchasesClaimed: 0, invoicesClaimed: 0 };
+    }
+
+    try {
+      const normalizedEmail = email.toLowerCase().trim();
+      const escapedEmail = normalizedEmail.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&",
+      );
+      const emailRegex = new RegExp(`^${escapedEmail}$`, "i");
+
+      // 1. Link guest orders to the newly authenticated userId
+      const orderUpdateResult = await Order.updateMany(
+        {
+          $or: [{ guestEmail: normalizedEmail }, { guestEmail: emailRegex }],
+          $or: [
+            { userId: null },
+            { userId: "" },
+            { userId: { $exists: false } },
+          ],
+        },
+        {
+          $set: {
+            userId: String(userId),
+          },
+        },
+      );
+
+      // 2. Link guest purchases to the userId
+      // Check existing user purchases to avoid duplicate key error on { userId: 1, bookId: 1 }
+      const existingUserPurchases = await Purchase.find({
+        userId: String(userId),
+      }).distinct("bookId");
+
+      // Link non-duplicate guest purchases
+      const purchaseUpdateResult = await Purchase.updateMany(
+        {
+          $or: [
+            { customerEmail: normalizedEmail },
+            { customerEmail: emailRegex },
+          ],
+          $or: [
+            { userId: null },
+            { userId: "" },
+            { userId: { $exists: false } },
+          ],
+          bookId: { $nin: existingUserPurchases },
+        },
+        {
+          $set: {
+            userId: String(userId),
+          },
+        },
+      );
+
+      // If user already owns the book, remove redundant unlinked guest purchases
+      if (existingUserPurchases.length > 0) {
+        await Purchase.deleteMany({
+          $or: [
+            { customerEmail: normalizedEmail },
+            { customerEmail: emailRegex },
+          ],
+          $or: [
+            { userId: null },
+            { userId: "" },
+            { userId: { $exists: false } },
+          ],
+          bookId: { $in: existingUserPurchases },
+        });
+      }
+
+      // 3. Link past guest invoices
+      const invoiceUpdateResult = await Invoice.updateMany(
+        {
+          $or: [{ guestEmail: normalizedEmail }, { guestEmail: emailRegex }],
+          $or: [
+            { userId: null },
+            { userId: "" },
+            { userId: { $exists: false } },
+          ],
+        },
+        {
+          $set: {
+            userId: String(userId),
+          },
+        },
+      );
+
+      if (
+        orderUpdateResult.modifiedCount > 0 ||
+        purchaseUpdateResult.modifiedCount > 0 ||
+        invoiceUpdateResult.modifiedCount > 0
+      ) {
+        console.log(
+          `✅ [Guest Order Claiming] Linked to user ${userId} (${normalizedEmail}): ` +
+            `${orderUpdateResult.modifiedCount} orders, ` +
+            `${purchaseUpdateResult.modifiedCount} purchases, ` +
+            `${invoiceUpdateResult.modifiedCount} invoices`,
+        );
+      }
+
+      return {
+        ordersClaimed: orderUpdateResult.modifiedCount,
+        purchasesClaimed: purchaseUpdateResult.modifiedCount,
+        invoicesClaimed: invoiceUpdateResult.modifiedCount,
+      };
+    } catch (error) {
+      console.error(
+        `❌ [Guest Order Claiming Error] Failed for ${email} (${userId}):`,
+        error,
+      );
+      return {
+        ordersClaimed: 0,
+        purchasesClaimed: 0,
+        invoicesClaimed: 0,
+        error: error.message,
+      };
+    }
+  }
 }
 
 const OrderService = new OrderServiceClass();

@@ -4,7 +4,21 @@ const downloadLogSchema = new mongoose.Schema(
   {
     userId: {
       type: String,
-      required: [true, "User ID is required"],
+      required: false,
+      default: null,
+      index: true,
+    },
+    guestEmail: {
+      type: String,
+      default: null,
+      trim: true,
+      lowercase: true,
+      index: true,
+    },
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+      default: null,
       index: true,
     },
     bookId: {
@@ -15,7 +29,8 @@ const downloadLogSchema = new mongoose.Schema(
     purchaseId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Purchase",
-      required: [true, "Purchase ID is required"],
+      required: false,
+      default: null,
       index: true,
     },
     ipAddress: {

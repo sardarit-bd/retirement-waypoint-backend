@@ -109,10 +109,15 @@ class PurchaseServiceClass {
 
       for (const item of orderItems) {
         // Check existing purchase
-        const existingPurchase = await Purchase.findOne({
-          userId: order.userId,
-          bookId: item.bookId,
-        }).session(session);
+        const existingPurchase = order.userId
+          ? await Purchase.findOne({
+              userId: order.userId,
+              bookId: item.bookId,
+            }).session(session)
+          : await Purchase.findOne({
+              orderId: order._id,
+              bookId: item.bookId,
+            }).session(session);
 
         if (existingPurchase) {
           console.log(`Purchase already exists for book ${item.bookId}`);
@@ -122,7 +127,8 @@ class PurchaseServiceClass {
         const purchase = await Purchase.create(
           [
             {
-              userId: order.userId,
+              userId: order.userId || null,
+              customerEmail: order.guestEmail || null,
               bookId: item.bookId,
               orderId: order._id,
               purchasedAt: new Date(),

@@ -77,7 +77,8 @@ class InvoiceServiceClass {
     // Create invoice
     const invoice = await Invoice.create({
       orderId: order._id,
-      userId: order.userId,
+      userId: order.userId || null,
+      guestEmail: order.guestEmail || null,
       invoiceNumber,
       subtotal: order.subtotal,
       totalAmount: order.totalAmount,

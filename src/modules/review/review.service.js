@@ -2,30 +2,30 @@ import mongoose from "mongoose";
 import { Purchase } from "../purchase/purchase.model.js";
 import { Review } from "./review.model.js";
 import { Book } from "../book/book.model.js";
+import { Order } from "../order/order.model.js";
+import { OrderItem } from "../order/orderItem.model.js";
+import AuthService from "../auth/auth.service.js";
+import MyBooksService from "../my-books/myBooks.service.js";
 import ApiError from "../../utils/ApiError.js";
 
 class ReviewServiceClass {
   /**
-   * Verify user has purchased the book
+   * Check whether the user has purchased the book (registered or guest order)
+   * Delegates to MyBooksService.hasPurchasedBook for consistency
    */
-  async verifyPurchase(userId, bookId) {
-    const purchase = await Purchase.findOne({
-      userId,
-      bookId,
-      accessStatus: "ACTIVE",
-    });
-
-    if (!purchase) {
-      throw new ApiError(403, "You can only review books you have purchased");
-    }
-
-    return purchase;
+  async verifyPurchase(userId, bookId, userEmail = null) {
+    return await MyBooksService.hasPurchasedBook(userId, bookId, userEmail);
   }
 
   async getMyReview(userId, bookId) {
+    const bookConditions = [{ bookId: bookId.toString() }];
+    if (mongoose.Types.ObjectId.isValid(bookId)) {
+      bookConditions.push({ bookId: new mongoose.Types.ObjectId(bookId.toString()) });
+    }
+
     return await Review.findOne({
       userId,
-      bookId,
+      $or: bookConditions,
     });
   }
 
@@ -33,19 +33,31 @@ class ReviewServiceClass {
    * Check if user has already reviewed this book
    */
   async hasReviewed(userId, bookId) {
-    const review = await Review.findOne({ userId, bookId });
+    const review = await this.getMyReview(userId, bookId);
     return !!review;
   }
 
   /**
-   * Recalculate book rating statistics
+   * Recalculate book rating statistics (Approved reviews only)
    */
   async recalculateBookStats(bookId) {
+    const bookConditions = [{ bookId: bookId.toString() }];
+    if (mongoose.Types.ObjectId.isValid(bookId)) {
+      bookConditions.push({ bookId: new mongoose.Types.ObjectId(bookId.toString()) });
+    }
+
     const stats = await Review.aggregate([
       {
         $match: {
-          bookId,
-          isApproved: true,
+          $and: [
+            { $or: bookConditions },
+            {
+              $or: [
+                { status: "APPROVED" },
+                { isApproved: true, status: { $ne: "REJECTED" } },
+              ],
+            },
+          ],
         },
       },
       {
@@ -74,29 +86,152 @@ class ReviewServiceClass {
   }
 
   /**
-   * Create review
+   * Verify guest review token
+   * Validates token against order, expiration, order completion, and book purchased
    */
-  async createReview(userId, reviewData) {
-    const { bookId, rating, title, comment } = reviewData;
-
-    // Verify purchase
-    await this.verifyPurchase(userId, bookId);
-
-    // Check if already reviewed
-    const existingReview = await this.hasReviewed(userId, bookId);
-    if (existingReview) {
-      throw new ApiError(400, "You have already reviewed this book");
+  async verifyReviewToken(token, orderId, bookId = null) {
+    if (!token || !orderId) {
+      throw new ApiError(400, "Token and order ID are required");
     }
 
-    // Create review
-    const review = await Review.create({
-      userId,
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      throw new ApiError(400, "Invalid order ID");
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      throw new ApiError(404, "Order not found");
+    }
+
+    if (order.isReviewSubmitted) {
+      throw new ApiError(400, "A review has already been submitted for this order");
+    }
+
+    if (!order.reviewToken || order.reviewToken !== token) {
+      throw new ApiError(403, "Invalid review token");
+    }
+
+    if (order.reviewTokenExpiresAt && new Date() > order.reviewTokenExpiresAt) {
+      throw new ApiError(403, "Review link has expired");
+    }
+
+    // If bookId is provided, check if book was part of this order
+    if (bookId) {
+      const bookObjId = mongoose.Types.ObjectId.isValid(bookId)
+        ? new mongoose.Types.ObjectId(bookId.toString())
+        : bookId;
+      const orderItem = await OrderItem.findOne({
+        orderId: order._id,
+        $or: [{ bookId: bookObjId }, { bookId: bookId.toString() }],
+      });
+      if (!orderItem) {
+        throw new ApiError(403, "This order does not include the requested book");
+      }
+    }
+
+    return {
+      valid: true,
+      guestName: order.guestName || "Valued Reader",
+      guestEmail: order.guestEmail,
+      orderId: order._id,
+    };
+  }
+
+  /**
+   * Create review
+   * Strictly enforces verified buyer purchase check or valid guest review token
+   */
+  async createReview(userId, reviewData, userEmail = null) {
+    const { bookId, rating, title = "", comment, reviewToken, orderId } = reviewData;
+
+    // 1. Authenticated user path
+    if (userId) {
+      // Check if already reviewed (enforce one review per user per book)
+      const existingReview = await this.hasReviewed(userId, bookId);
+      if (existingReview) {
+        throw new ApiError(400, "You have already reviewed this book");
+      }
+
+      // Strictly verify purchase using existing service
+      const hasBought = await MyBooksService.hasPurchasedBook(
+        userId,
+        bookId,
+        userEmail,
+      );
+      if (!hasBought) {
+        throw new ApiError(
+          403,
+          "Only verified purchasers of this book can submit reviews.",
+        );
+      }
+
+      // Create review with PENDING status
+      const review = await Review.create({
+        userId,
+        bookId,
+        rating,
+        title,
+        comment,
+        status: "PENDING",
+        isVerifiedBuyer: true,
+        isVerifiedPurchase: true,
+        isApproved: false,
+      });
+
+      // If orderId was provided, invalidate token and mark submitted
+      if (orderId && mongoose.Types.ObjectId.isValid(orderId)) {
+        await Order.findByIdAndUpdate(orderId, {
+          reviewToken: null,
+          isReviewSubmitted: true,
+        });
+      }
+
+      return review;
+    }
+
+    // 2. Guest user path - requires reviewToken and orderId
+    if (!reviewToken || !orderId) {
+      throw new ApiError(
+        401,
+        "Authentication or a valid review token and order ID are required.",
+      );
+    }
+
+    // Verify token validity and match with order
+    await this.verifyReviewToken(reviewToken, orderId, bookId);
+
+    const order = await Order.findById(orderId);
+
+    // Enforce one review per order
+    const existingOrderReview = await Review.findOne({
+      orderId: order._id,
       bookId,
+    });
+    if (existingOrderReview) {
+      throw new ApiError(400, "A review has already been submitted for this order");
+    }
+
+    // Create guest review
+    const review = await Review.create({
+      bookId,
+      userId: order.userId || null,
+      orderId: order._id,
+      isGuest: true,
+      reviewerName: order.guestName || "Guest Reader",
+      reviewerEmail: order.guestEmail,
       rating,
       title,
       comment,
+      status: "PENDING",
+      isVerifiedBuyer: true,
       isVerifiedPurchase: true,
       isApproved: false,
+    });
+
+    // Invalidate single-use token on order
+    await Order.findByIdAndUpdate(orderId, {
+      reviewToken: null,
+      isReviewSubmitted: true,
     });
 
     return review;
@@ -111,24 +246,22 @@ class ReviewServiceClass {
       throw new ApiError(404, "Review not found or you don't have permission");
     }
 
-    // Check if already approved - if approved, need re-approval
-    const wasApproved = review.isApproved;
+    const wasApproved = review.isApproved || review.status === "APPROVED";
 
     // Update fields
     if (updateData.rating !== undefined) review.rating = updateData.rating;
     if (updateData.title !== undefined) review.title = updateData.title;
     if (updateData.comment !== undefined) review.comment = updateData.comment;
 
-    // If review was approved, reset approval status
-    if (wasApproved) {
-      review.isApproved = false;
-      review.approvedBy = null;
-      review.approvedAt = null;
-    }
+    // Any edit moves review back to PENDING moderation
+    review.status = "PENDING";
+    review.isApproved = false;
+    review.approvedBy = null;
+    review.approvedAt = null;
 
     await review.save();
 
-    // If it was approved and changed, recalculate stats
+    // If it was previously approved, recalculate stats
     if (wasApproved) {
       await this.recalculateBookStats(review.bookId);
     }
@@ -150,7 +283,7 @@ class ReviewServiceClass {
       throw new ApiError(404, "Review not found or you don't have permission");
     }
 
-    const wasApproved = review.isApproved;
+    const wasApproved = review.isApproved || review.status === "APPROVED";
     const bookId = review.bookId;
 
     await review.deleteOne();
@@ -201,7 +334,7 @@ class ReviewServiceClass {
 
     const enrichedReviews = reviews.map((review) => ({
       ...review.toObject(),
-      book: bookMap.get(review.bookId) || null,
+      book: bookMap.get(review.bookId?.toString()) || null,
     }));
 
     return {
@@ -252,6 +385,7 @@ class ReviewServiceClass {
       search,
       rating,
       approved,
+      status,
       bookId,
       userId,
       sortBy = "createdAt",
@@ -266,8 +400,15 @@ class ReviewServiceClass {
     if (rating) filter.rating = rating;
     if (bookId) filter.bookId = bookId;
     if (userId) filter.userId = userId;
-    if (approved !== undefined) {
-      filter.isApproved = approved === "true";
+
+    if (status) {
+      filter.status = status;
+    } else if (approved !== undefined) {
+      if (approved === "true") {
+        filter.$or = [{ status: "APPROVED" }, { isApproved: true }];
+      } else {
+        filter.$or = [{ status: "PENDING" }, { isApproved: false }];
+      }
     }
 
     // Search in title and comment
@@ -299,10 +440,35 @@ class ReviewServiceClass {
       bookMap.set(book._id.toString(), book);
     });
 
-    const enrichedReviews = reviews.map((review) => ({
-      ...review.toObject(),
-      book: bookMap.get(review.bookId) || null,
-    }));
+    const userCollection = mongoose.connection.db.collection("user");
+    const userIds = reviews
+      .map((review) => review.userId)
+      .filter((id) => id && mongoose.Types.ObjectId.isValid(id));
+
+    const users = await userCollection
+      .find({
+        _id: { $in: userIds.map((id) => new mongoose.Types.ObjectId(id)) },
+      })
+      .toArray();
+
+    const userMap = new Map();
+    users.forEach((user) => {
+      userMap.set(user._id.toString(), user);
+    });
+
+    const enrichedReviews = reviews.map((review) => {
+      const user = userMap.get(review.userId);
+      return {
+        ...review.toObject(),
+        book: bookMap.get(review.bookId?.toString()) || null,
+        user: {
+          id: review.userId || null,
+          name: review.reviewerName || user?.name || (review.isGuest ? "Guest Reader" : "Verified Reader"),
+          email: review.reviewerEmail || user?.email || null,
+          image: user?.image || null,
+        },
+      };
+    });
 
     return {
       reviews: enrichedReviews,
@@ -318,46 +484,56 @@ class ReviewServiceClass {
   }
 
   /**
-   * Approve review (admin)
+   * Update review status (admin) - APPROVED or REJECTED
    */
-  async approveReview(reviewId, adminId) {
+  async updateReviewStatus(reviewId, status, adminId = null) {
+    if (!["APPROVED", "REJECTED"].includes(status)) {
+      throw new ApiError(400, "Invalid status. Status must be APPROVED or REJECTED.");
+    }
+
     const review = await Review.findById(reviewId);
     if (!review) {
       throw new ApiError(404, "Review not found");
     }
 
-    if (review.isApproved) {
-      throw new ApiError(400, "Review is already approved");
+    const wasApproved = review.isApproved || review.status === "APPROVED";
+
+    if (status === "APPROVED") {
+      review.status = "APPROVED";
+      review.isApproved = true;
+      review.approvedBy = adminId;
+      review.approvedAt = new Date();
+    } else if (status === "REJECTED") {
+      review.status = "REJECTED";
+      review.isApproved = false;
     }
 
-    review.isApproved = true;
-    review.approvedBy = adminId;
-    review.approvedAt = new Date();
     await review.save();
 
-    // Recalculate book stats
-    await this.recalculateBookStats(review.bookId);
+    // Recalculate book stats if becoming approved or leaving approved status
+    if (status === "APPROVED" || wasApproved) {
+      await this.recalculateBookStats(review.bookId);
+    }
 
     return review;
   }
 
   /**
-   * Reject review (admin)
+   * Approve review (admin)
    */
-  async rejectReview(reviewId) {
-    const review = await Review.findById(reviewId);
-    if (!review) {
-      throw new ApiError(404, "Review not found");
-    }
-
-    // Delete the review
-    await review.deleteOne();
-
-    return { success: true, message: "Review rejected and deleted" };
+  async approveReview(reviewId, adminId) {
+    return await this.updateReviewStatus(reviewId, "APPROVED", adminId);
   }
 
   /**
-   * Get book reviews (public - approved only)
+   * Reject review (admin)
+   */
+  async rejectReview(reviewId, adminId = null) {
+    return await this.updateReviewStatus(reviewId, "REJECTED", adminId);
+  }
+
+  /**
+   * Get book reviews (public - APPROVED strictly only)
    */
   async getBookReviews(bookId, query = {}) {
     const {
@@ -371,9 +547,21 @@ class ReviewServiceClass {
     const limitNumber = Math.min(Math.max(Number(limit) || 20, 1), 100);
     const skip = (pageNumber - 1) * limitNumber;
 
+    const bookConditions = [{ bookId: bookId.toString() }];
+    if (mongoose.Types.ObjectId.isValid(bookId)) {
+      bookConditions.push({ bookId: new mongoose.Types.ObjectId(bookId.toString()) });
+    }
+
     const filter = {
-      bookId,
-      isApproved: true,
+      $and: [
+        { $or: bookConditions },
+        {
+          $or: [
+            { status: "APPROVED" },
+            { isApproved: true, status: { $ne: "REJECTED" } },
+          ],
+        },
+      ],
     };
 
     const sort = {};
@@ -405,14 +593,21 @@ class ReviewServiceClass {
       userMap.set(user._id.toString(), user);
     });
 
-    const enrichedReviews = reviews.map((review) => ({
-      ...review.toObject(),
-      user: {
-        id: review.userId,
-        name: userMap.get(review.userId)?.name || "Anonymous User",
-        image: userMap.get(review.userId)?.image || null,
-      },
-    }));
+    const enrichedReviews = reviews.map((review) => {
+      const user = userMap.get(review.userId);
+      const name =
+        review.reviewerName ||
+        user?.name ||
+        (review.isGuest ? "Guest Reader" : "Verified Reader");
+      return {
+        ...review.toObject(),
+        user: {
+          id: review.userId || null,
+          name,
+          image: user?.image || null,
+        },
+      };
+    });
 
     return {
       reviews: enrichedReviews,
@@ -428,7 +623,7 @@ class ReviewServiceClass {
   }
 
   /**
-   * Get review summary (public)
+   * Get review summary (public - APPROVED strictly only)
    */
   async getReviewSummary(bookId) {
     const book = await Book.findById(bookId);
@@ -437,12 +632,24 @@ class ReviewServiceClass {
       throw new ApiError(404, "Book not found");
     }
 
+    const bookConditions = [{ bookId: bookId.toString() }];
+    if (mongoose.Types.ObjectId.isValid(bookId)) {
+      bookConditions.push({ bookId: new mongoose.Types.ObjectId(bookId.toString()) });
+    }
+
     // Get average rating, total reviews & rating breakdown
     const stats = await Review.aggregate([
       {
         $match: {
-          bookId,
-          isApproved: true,
+          $and: [
+            { $or: bookConditions },
+            {
+              $or: [
+                { status: "APPROVED" },
+                { isApproved: true, status: { $ne: "REJECTED" } },
+              ],
+            },
+          ],
         },
       },
       {
