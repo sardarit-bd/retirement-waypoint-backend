@@ -5,8 +5,19 @@ export const createReviewValidation = z.object({
   body: z.object({
     bookId: z.string().min(1, "Book ID is required"),
     rating: z.number().min(1, "Rating must be at least 1").max(5, "Rating cannot exceed 5"),
-    title: z.string().min(1, "Title is required").max(150, "Title cannot exceed 150 characters"),
+    title: z.string().max(150, "Title cannot exceed 150 characters").optional().default(""),
     comment: z.string().min(1, "Comment is required").max(2000, "Comment cannot exceed 2000 characters"),
+    reviewToken: z.string().optional(),
+    orderId: z.string().optional(),
+  }),
+});
+
+// Verify guest review token validation
+export const verifyReviewTokenValidation = z.object({
+  query: z.object({
+    token: z.string().min(1, "Token is required"),
+    orderId: z.string().min(1, "Order ID is required"),
+    bookId: z.string().optional(),
   }),
 });
 

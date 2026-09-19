@@ -1,5 +1,5 @@
 import express from "express";
-import { protect, restrictTo } from "../../middleware/authMiddleware.js";
+import { protect, optionalAuth, restrictTo } from "../../middleware/authMiddleware.js";
 import {
   adminGetReviewsValidation,
   approveReviewValidation,
@@ -12,6 +12,7 @@ import {
   rejectReviewValidation,
   updateReviewStatusValidation,
   updateReviewValidation,
+  verifyReviewTokenValidation,
   validate,
 } from "./review.validation.js";
 import { ReviewController } from "./review.controller.js";
@@ -19,6 +20,13 @@ import { ReviewController } from "./review.controller.js";
 const router = express.Router();
 
 // ==================== PUBLIC ROUTES ====================
+
+// Verify guest review token
+router.get(
+  "/verify-token",
+  validate(verifyReviewTokenValidation),
+  ReviewController.verifyToken,
+);
 
 // Get book reviews (public - approved only)
 router.get(
@@ -34,6 +42,14 @@ router.get(
   ReviewController.getReviewSummary,
 );
 
+// Create review (supports authenticated users OR guests with valid reviewToken + orderId)
+router.post(
+  "/",
+  optionalAuth,
+  validate(createReviewValidation),
+  ReviewController.createReview,
+);
+
 // ==================== PROTECTED ROUTES ====================
 
 router.use(protect);
@@ -42,13 +58,6 @@ router.use(protect);
 router.get(
   "/my-review/:bookId",
   ReviewController.getMyReview,
-);
-
-// Create review
-router.post(
-  "/",
-  validate(createReviewValidation),
-  ReviewController.createReview,
 );
 
 // Update review

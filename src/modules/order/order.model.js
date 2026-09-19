@@ -127,6 +127,20 @@ const orderSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // Single-use review token for verified purchasers / guests
+    reviewToken: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    reviewTokenExpiresAt: {
+      type: Date,
+      default: null,
+    },
+    isReviewSubmitted: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

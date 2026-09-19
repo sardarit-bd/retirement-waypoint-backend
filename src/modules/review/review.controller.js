@@ -8,14 +8,33 @@ import sendResponse from "../../utils/sendResponse.js";
 import ReviewService from "./review.service.js";
 
 /**
+ * Verify guest review token
+ * GET /api/reviews/verify-token
+ */
+const verifyToken = catchAsync(async (req, res) => {
+  const { token, orderId, bookId } = req.query;
+  const result = await ReviewService.verifyReviewToken(token, orderId, bookId);
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "Review token is valid",
+    data: result,
+  });
+});
+
+/**
  * Create review
  * POST /api/reviews
  */
 const createReview = catchAsync(async (req, res) => {
+  const userId = req.user?.id || null;
+  const userEmail = req.user?.email || null;
+
   const review = await ReviewService.createReview(
-    req.user.id,
+    userId,
     req.body,
-    req.user?.email,
+    userEmail,
   );
 
   sendResponse(res, {
@@ -228,6 +247,7 @@ const adminUpdateReviewStatus = catchAsync(async (req, res) => {
 });
 
 export const ReviewController = {
+  verifyToken,
   createReview,
   getMyReview,
   updateReview,

@@ -170,6 +170,20 @@ class PaymentServiceClass {
       updatedOrder.downloadTokenExpiresAt = downloadTokenExpiresAt;
     }
 
+    // Generate single-use review token (30 days validity)
+    const reviewToken = crypto.randomBytes(24).toString("hex");
+    const reviewTokenExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    await Order.findByIdAndUpdate(orderId, {
+      $set: {
+        reviewToken,
+        reviewTokenExpiresAt,
+      },
+    });
+
+    updatedOrder.reviewToken = reviewToken;
+    updatedOrder.reviewTokenExpiresAt = reviewTokenExpiresAt;
+
     // Create purchases
     const purchaseResult =
       await PurchaseService.createPurchaseAfterPayment(orderId);
@@ -200,6 +214,12 @@ class PaymentServiceClass {
 
       if (recipientEmail) {
         const orderItems = await OrderItem.find({ orderId: existingOrder._id });
+        let bookSlug = null;
+        if (orderItems.length > 0) {
+          const firstBook = await Book.findById(orderItems[0].bookId).select("slug");
+          if (firstBook) bookSlug = firstBook.slug;
+        }
+
         const itemsListHtml = orderItems
           .map(
             (item) =>
@@ -241,6 +261,24 @@ class PaymentServiceClass {
               </div>
             </div>`;
 
+        const reviewSectionHtml = (reviewToken && bookSlug)
+          ? `<div style="margin: 24px 0; padding: 20px; background-color: #fdfbf7; border-radius: 8px; border: 1px solid #C9A84C; text-align: center;">
+              <h3 style="color: #1B2B4B; margin-top: 0; font-size: 18px;">Enjoying your purchase?</h3>
+              <p style="color: #555; font-size: 14px; margin-bottom: 16px;">
+                Leave a verified review for fellow readers! Click below to share your feedback directly:
+              </p>
+              <div style="text-align: center; margin: 16px 0;">
+                <a href="${FRONTEND_URL}/book/${bookSlug}?reviewToken=${reviewToken}&orderId=${existingOrder._id}#reviews" 
+                   style="background-color: #1B2B4B; color: #ffffff; font-weight: bold; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-size: 14px;">
+                   Write a Review
+                </a>
+              </div>
+              <p style="font-size: 12px; color: #777; margin-bottom: 0;">
+                Direct passwordless link valid for 30 days.
+              </p>
+            </div>`
+          : "";
+
         await sendEmail({
           to: recipientEmail,
           subject: `Order Confirmation - #${existingOrder.orderNumber}`,
@@ -279,6 +317,8 @@ class PaymentServiceClass {
                 </table>
 
                 ${downloadSectionHtml}
+
+                ${reviewSectionHtml}
 
                 <p style="font-size: 13px; color: #888; margin-top: 24px; border-top: 1px solid #eee; padding-top: 16px;">
                   If you have any questions or need support, please contact us at support@retirementwaypoint.com.
@@ -517,6 +557,7 @@ class PaymentServiceClass {
 
     // Ensure order has an active download token if PAID
     if (order.paymentStatus === "PAID") {
+      let needsSave = false;
       const isExpired =
         order.downloadTokenExpiresAt &&
         new Date() > order.downloadTokenExpiresAt;
@@ -525,6 +566,24 @@ class PaymentServiceClass {
         order.downloadTokenExpiresAt = new Date(
           Date.now() + 7 * 24 * 60 * 60 * 1000
         ); // 7 days
+        needsSave = true;
+      }
+
+      // Ensure reviewToken exists if review not yet submitted
+      if (!order.isReviewSubmitted) {
+        const isReviewExpired =
+          order.reviewTokenExpiresAt &&
+          new Date() > order.reviewTokenExpiresAt;
+        if (!order.reviewToken || isReviewExpired) {
+          order.reviewToken = crypto.randomBytes(24).toString("hex");
+          order.reviewTokenExpiresAt = new Date(
+            Date.now() + 30 * 24 * 60 * 60 * 1000
+          ); // 30 days
+          needsSave = true;
+        }
+      }
+
+      if (needsSave) {
         await order.save();
       }
     }
@@ -550,8 +609,11 @@ class PaymentServiceClass {
       paymentStatus: order.paymentStatus,
       isGuest: order.isGuest,
       guestEmail: order.guestEmail,
+      guestName: order.guestName || null,
       downloadToken: order.downloadToken,
       downloadUrl,
+      reviewToken: order.isReviewSubmitted ? null : order.reviewToken,
+      isReviewSubmitted: !!order.isReviewSubmitted,
       book: book
         ? {
             id: book._id,

@@ -86,35 +86,139 @@ class ReviewServiceClass {
   }
 
   /**
-   * Create review
-   * Strictly enforces verified buyer purchase check
+   * Verify guest review token
+   * Validates token against order, expiration, order completion, and book purchased
    */
-  async createReview(userId, reviewData, userEmail = null) {
-    const { bookId, rating, title, comment } = reviewData;
-
-    // 1. Check if already reviewed (enforce one review per user per book)
-    const existingReview = await this.hasReviewed(userId, bookId);
-    if (existingReview) {
-      throw new ApiError(400, "You have already reviewed this book");
+  async verifyReviewToken(token, orderId, bookId = null) {
+    if (!token || !orderId) {
+      throw new ApiError(400, "Token and order ID are required");
     }
 
-    // 2. Strictly verify purchase using existing service
-    const hasBought = await MyBooksService.hasPurchasedBook(
-      userId,
-      bookId,
-      userEmail,
-    );
-    if (!hasBought) {
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      throw new ApiError(400, "Invalid order ID");
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      throw new ApiError(404, "Order not found");
+    }
+
+    if (order.isReviewSubmitted) {
+      throw new ApiError(400, "A review has already been submitted for this order");
+    }
+
+    if (!order.reviewToken || order.reviewToken !== token) {
+      throw new ApiError(403, "Invalid review token");
+    }
+
+    if (order.reviewTokenExpiresAt && new Date() > order.reviewTokenExpiresAt) {
+      throw new ApiError(403, "Review link has expired");
+    }
+
+    // If bookId is provided, check if book was part of this order
+    if (bookId) {
+      const bookObjId = mongoose.Types.ObjectId.isValid(bookId)
+        ? new mongoose.Types.ObjectId(bookId.toString())
+        : bookId;
+      const orderItem = await OrderItem.findOne({
+        orderId: order._id,
+        $or: [{ bookId: bookObjId }, { bookId: bookId.toString() }],
+      });
+      if (!orderItem) {
+        throw new ApiError(403, "This order does not include the requested book");
+      }
+    }
+
+    return {
+      valid: true,
+      guestName: order.guestName || "Valued Reader",
+      guestEmail: order.guestEmail,
+      orderId: order._id,
+    };
+  }
+
+  /**
+   * Create review
+   * Strictly enforces verified buyer purchase check or valid guest review token
+   */
+  async createReview(userId, reviewData, userEmail = null) {
+    const { bookId, rating, title = "", comment, reviewToken, orderId } = reviewData;
+
+    // 1. Authenticated user path
+    if (userId) {
+      // Check if already reviewed (enforce one review per user per book)
+      const existingReview = await this.hasReviewed(userId, bookId);
+      if (existingReview) {
+        throw new ApiError(400, "You have already reviewed this book");
+      }
+
+      // Strictly verify purchase using existing service
+      const hasBought = await MyBooksService.hasPurchasedBook(
+        userId,
+        bookId,
+        userEmail,
+      );
+      if (!hasBought) {
+        throw new ApiError(
+          403,
+          "Only verified purchasers of this book can submit reviews.",
+        );
+      }
+
+      // Create review with PENDING status
+      const review = await Review.create({
+        userId,
+        bookId,
+        rating,
+        title,
+        comment,
+        status: "PENDING",
+        isVerifiedBuyer: true,
+        isVerifiedPurchase: true,
+        isApproved: false,
+      });
+
+      // If orderId was provided, invalidate token and mark submitted
+      if (orderId && mongoose.Types.ObjectId.isValid(orderId)) {
+        await Order.findByIdAndUpdate(orderId, {
+          reviewToken: null,
+          isReviewSubmitted: true,
+        });
+      }
+
+      return review;
+    }
+
+    // 2. Guest user path - requires reviewToken and orderId
+    if (!reviewToken || !orderId) {
       throw new ApiError(
-        403,
-        "Only verified purchasers of this book can submit reviews.",
+        401,
+        "Authentication or a valid review token and order ID are required.",
       );
     }
 
-    // 3. Create review with PENDING status
-    const review = await Review.create({
-      userId,
+    // Verify token validity and match with order
+    await this.verifyReviewToken(reviewToken, orderId, bookId);
+
+    const order = await Order.findById(orderId);
+
+    // Enforce one review per order
+    const existingOrderReview = await Review.findOne({
+      orderId: order._id,
       bookId,
+    });
+    if (existingOrderReview) {
+      throw new ApiError(400, "A review has already been submitted for this order");
+    }
+
+    // Create guest review
+    const review = await Review.create({
+      bookId,
+      userId: order.userId || null,
+      orderId: order._id,
+      isGuest: true,
+      reviewerName: order.guestName || "Guest Reader",
+      reviewerEmail: order.guestEmail,
       rating,
       title,
       comment,
@@ -122,6 +226,12 @@ class ReviewServiceClass {
       isVerifiedBuyer: true,
       isVerifiedPurchase: true,
       isApproved: false,
+    });
+
+    // Invalidate single-use token on order
+    await Order.findByIdAndUpdate(orderId, {
+      reviewToken: null,
+      isReviewSubmitted: true,
     });
 
     return review;
@@ -330,10 +440,35 @@ class ReviewServiceClass {
       bookMap.set(book._id.toString(), book);
     });
 
-    const enrichedReviews = reviews.map((review) => ({
-      ...review.toObject(),
-      book: bookMap.get(review.bookId?.toString()) || null,
-    }));
+    const userCollection = mongoose.connection.db.collection("user");
+    const userIds = reviews
+      .map((review) => review.userId)
+      .filter((id) => id && mongoose.Types.ObjectId.isValid(id));
+
+    const users = await userCollection
+      .find({
+        _id: { $in: userIds.map((id) => new mongoose.Types.ObjectId(id)) },
+      })
+      .toArray();
+
+    const userMap = new Map();
+    users.forEach((user) => {
+      userMap.set(user._id.toString(), user);
+    });
+
+    const enrichedReviews = reviews.map((review) => {
+      const user = userMap.get(review.userId);
+      return {
+        ...review.toObject(),
+        book: bookMap.get(review.bookId?.toString()) || null,
+        user: {
+          id: review.userId || null,
+          name: review.reviewerName || user?.name || (review.isGuest ? "Guest Reader" : "Verified Reader"),
+          email: review.reviewerEmail || user?.email || null,
+          image: user?.image || null,
+        },
+      };
+    });
 
     return {
       reviews: enrichedReviews,
@@ -458,14 +593,21 @@ class ReviewServiceClass {
       userMap.set(user._id.toString(), user);
     });
 
-    const enrichedReviews = reviews.map((review) => ({
-      ...review.toObject(),
-      user: {
-        id: review.userId,
-        name: userMap.get(review.userId)?.name || "Anonymous User",
-        image: userMap.get(review.userId)?.image || null,
-      },
-    }));
+    const enrichedReviews = reviews.map((review) => {
+      const user = userMap.get(review.userId);
+      const name =
+        review.reviewerName ||
+        user?.name ||
+        (review.isGuest ? "Guest Reader" : "Verified Reader");
+      return {
+        ...review.toObject(),
+        user: {
+          id: review.userId || null,
+          name,
+          image: user?.image || null,
+        },
+      };
+    });
 
     return {
       reviews: enrichedReviews,
