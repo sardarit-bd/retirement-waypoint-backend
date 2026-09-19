@@ -39,6 +39,7 @@ router.use('/public/books', PublicBookRoutes);
 router.use('/orders', OrderRoutes);
 router.use('/purchases', PurchaseRoutes);
 router.use('/payments', PaymentRoutes);
+router.use('/payment', PaymentRoutes);
 router.use('/invoices', InvoiceRoutes);
 router.use('/my-books', MyBooksRoutes);
 router.use('/reviews', ReviewRoutes);

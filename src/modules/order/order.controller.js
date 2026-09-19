@@ -40,6 +40,10 @@ const getOrderById = catchAsync(async (req, res) => {
 });
 
 const getMyOrders = catchAsync(async (req, res) => {
+  if (req.user?.id && req.user?.email) {
+    await OrderService.claimGuestOrders(req.user.id, req.user.email);
+  }
+
   const query = req.validatedQuery || req.query;
   const result = await OrderService.getUserOrders(req.user.id, query);
 

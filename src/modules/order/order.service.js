@@ -4,6 +4,7 @@ import { OrderItem } from "./orderItem.model.js";
 import ApiError from "../../utils/ApiError.js";
 import { Book } from "../book/book.model.js";
 import { Purchase } from "../purchase/purchase.model.js";
+import { Invoice } from "../invoice/invoice.model.js";
 import CouponService from "../coupon/coupon.service.js";
 import AuthService from "../auth/auth.service.js";
 import cloudinary from "../../config/cloudinary.js";
@@ -593,6 +594,133 @@ class OrderServiceClass {
       orderId: order._id,
       expiresIn: "15 minutes",
     };
+  }
+
+  /**
+   * Retroactively claim guest orders, purchases, and invoices for an authenticated user
+   * @param {string} userId - Authenticated user's ID
+   * @param {string} email - Authenticated user's email
+   */
+  async claimGuestOrders(userId, email) {
+    if (!userId || !email) {
+      return { ordersClaimed: 0, purchasesClaimed: 0, invoicesClaimed: 0 };
+    }
+
+    try {
+      const normalizedEmail = email.toLowerCase().trim();
+      const escapedEmail = normalizedEmail.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&",
+      );
+      const emailRegex = new RegExp(`^${escapedEmail}$`, "i");
+
+      // 1. Link guest orders to the newly authenticated userId
+      const orderUpdateResult = await Order.updateMany(
+        {
+          $or: [{ guestEmail: normalizedEmail }, { guestEmail: emailRegex }],
+          $or: [
+            { userId: null },
+            { userId: "" },
+            { userId: { $exists: false } },
+          ],
+        },
+        {
+          $set: {
+            userId: String(userId),
+          },
+        },
+      );
+
+      // 2. Link guest purchases to the userId
+      // Check existing user purchases to avoid duplicate key error on { userId: 1, bookId: 1 }
+      const existingUserPurchases = await Purchase.find({
+        userId: String(userId),
+      }).distinct("bookId");
+
+      // Link non-duplicate guest purchases
+      const purchaseUpdateResult = await Purchase.updateMany(
+        {
+          $or: [
+            { customerEmail: normalizedEmail },
+            { customerEmail: emailRegex },
+          ],
+          $or: [
+            { userId: null },
+            { userId: "" },
+            { userId: { $exists: false } },
+          ],
+          bookId: { $nin: existingUserPurchases },
+        },
+        {
+          $set: {
+            userId: String(userId),
+          },
+        },
+      );
+
+      // If user already owns the book, remove redundant unlinked guest purchases
+      if (existingUserPurchases.length > 0) {
+        await Purchase.deleteMany({
+          $or: [
+            { customerEmail: normalizedEmail },
+            { customerEmail: emailRegex },
+          ],
+          $or: [
+            { userId: null },
+            { userId: "" },
+            { userId: { $exists: false } },
+          ],
+          bookId: { $in: existingUserPurchases },
+        });
+      }
+
+      // 3. Link past guest invoices
+      const invoiceUpdateResult = await Invoice.updateMany(
+        {
+          $or: [{ guestEmail: normalizedEmail }, { guestEmail: emailRegex }],
+          $or: [
+            { userId: null },
+            { userId: "" },
+            { userId: { $exists: false } },
+          ],
+        },
+        {
+          $set: {
+            userId: String(userId),
+          },
+        },
+      );
+
+      if (
+        orderUpdateResult.modifiedCount > 0 ||
+        purchaseUpdateResult.modifiedCount > 0 ||
+        invoiceUpdateResult.modifiedCount > 0
+      ) {
+        console.log(
+          `✅ [Guest Order Claiming] Linked to user ${userId} (${normalizedEmail}): ` +
+            `${orderUpdateResult.modifiedCount} orders, ` +
+            `${purchaseUpdateResult.modifiedCount} purchases, ` +
+            `${invoiceUpdateResult.modifiedCount} invoices`,
+        );
+      }
+
+      return {
+        ordersClaimed: orderUpdateResult.modifiedCount,
+        purchasesClaimed: purchaseUpdateResult.modifiedCount,
+        invoicesClaimed: invoiceUpdateResult.modifiedCount,
+      };
+    } catch (error) {
+      console.error(
+        `❌ [Guest Order Claiming Error] Failed for ${email} (${userId}):`,
+        error,
+      );
+      return {
+        ordersClaimed: 0,
+        purchasesClaimed: 0,
+        invoicesClaimed: 0,
+        error: error.message,
+      };
+    }
   }
 }
 

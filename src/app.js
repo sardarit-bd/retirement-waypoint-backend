@@ -48,7 +48,7 @@ app.use('/api/auth', AuthRoutes);
 // Stripe Webhook (Raw Body)
 // =========================
 app.use(
-  '/api/payments/webhook',
+  ['/api/payments/webhook', '/api/payment/webhook'],
   express.raw({ type: 'application/json' })
 );
 

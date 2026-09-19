@@ -1,12 +1,17 @@
 import catchAsync from "../../utils/catchAsync.js";
 import sendResponse from "../../utils/sendResponse.js";
 import AuthService from "./auth.service.js";
+import OrderService from "../order/order.service.js";
 import { auth } from "../../config/betterAuth.js";
 import { toNodeHandler } from "better-auth/node";
 import { getRequestOrigin } from "../../config/origins.js";
 
 const getMe = catchAsync(async (req, res) => {
   const user = req.user;
+
+  if (user?.id && user?.email) {
+    await OrderService.claimGuestOrders(user.id, user.email);
+  }
 
   const profile = await AuthService.getUserProfile(user.id);
 
