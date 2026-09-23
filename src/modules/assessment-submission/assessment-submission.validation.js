@@ -3,9 +3,10 @@ import { z } from 'zod';
 // Participant schema
 const participantSchema = z.object({
   name: z.string()
-    .min(1, 'Name is required')
     .max(100, 'Name cannot exceed 100 characters')
-    .trim(),
+    .trim()
+    .optional()
+    .default('Participant'),
   email: z.string()
     .email('Invalid email format')
     .max(255, 'Email cannot exceed 255 characters')
