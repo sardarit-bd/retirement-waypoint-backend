@@ -54,11 +54,12 @@ class AssessmentSubmissionService {
       : null;
 
     // 8. Prepare submission data
+    const participantName = (submissionData?.participant?.name || 'Participant').trim();
     const submission = {
       assessmentId: assessment._id,
       assessmentSlug: assessment.slug,
       participant: {
-        name: submissionData.participant.name.trim(),
+        name: participantName || 'Participant',
         email: participantEmail,
       },
       userId: submissionData.userId || null,
