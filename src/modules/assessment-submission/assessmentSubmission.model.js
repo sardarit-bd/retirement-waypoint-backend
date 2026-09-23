@@ -26,8 +26,9 @@ const reflectionSchema = new mongoose.Schema({
 const participantSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: true,
+    required: false,
     trim: true,
+    default: 'Participant',
   },
   email: {
     type: String,
