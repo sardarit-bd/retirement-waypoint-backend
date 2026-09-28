@@ -6,6 +6,7 @@ import { Purchase } from "../purchase/purchase.model.js";
 import { Invoice } from "../invoice/invoice.model.js";
 import { Review } from "../review/review.model.js";
 import stripe from "../../config/stripe.js";
+import PayPalService from "../payment/paypal.service.js";
 import ApiError from "../../utils/ApiError.js";
 
 class RefundServiceClass {
@@ -302,15 +303,34 @@ class RefundServiceClass {
         throw new ApiError(400, "Order has already been refunded");
       }
 
-      // Process Stripe refund
-      let stripeRefund;
-      try {
-        stripeRefund = await stripe.refunds.create({
-          payment_intent: order.stripePaymentIntentId,
-          amount: Math.round(refund.refundAmount * 100),
-        });
-      } catch (error) {
-        throw new ApiError(500, `Stripe refund failed: ${error.message}`);
+      // Process Provider Refund (PayPal or Stripe)
+      let stripeRefund = null;
+      let paypalRefund = null;
+
+      if (order.paymentMethod === "paypal" || order.paypalCaptureId) {
+        if (!order.paypalCaptureId) {
+          throw new ApiError(
+            400,
+            "PayPal capture ID not found on order to process refund"
+          );
+        }
+        paypalRefund = await PayPalService.refundCapture(
+          order.paypalCaptureId,
+          refund.refundAmount,
+          adminNotes || "Refund approved and processed"
+        );
+        refund.paypalRefundId = paypalRefund.id;
+      } else {
+        // Process Stripe refund
+        try {
+          stripeRefund = await stripe.refunds.create({
+            payment_intent: order.stripePaymentIntentId,
+            amount: Math.round(refund.refundAmount * 100),
+          });
+          refund.stripeRefundId = stripeRefund.id;
+        } catch (error) {
+          throw new ApiError(500, `Stripe refund failed: ${error.message}`);
+        }
       }
 
       // Update refund request
@@ -318,7 +338,6 @@ class RefundServiceClass {
       refund.approvedBy = adminId;
       refund.approvedAt = new Date();
       refund.adminNotes = adminNotes || null;
-      refund.stripeRefundId = stripeRefund.id;
       await refund.save({ session });
 
       // Update order
@@ -347,12 +366,20 @@ class RefundServiceClass {
       }).session(session);
 
       // Create log
+      const refundAction =
+        order.paymentMethod === "paypal" || order.paypalCaptureId
+          ? "PAYPAL_REFUND"
+          : "STRIPE_REFUND";
+
       await this.createRefundLog(
         refund._id,
-        "COMPLETED",
+        refundAction,
         adminId,
         adminNotes || "Refund approved and processed",
-        { stripeRefundId: stripeRefund.id, refundAmount: refund.refundAmount }
+        {
+          providerRefundId: paypalRefund ? paypalRefund.id : stripeRefund?.id,
+          refundAmount: refund.refundAmount,
+        }
       );
 
       await session.commitTransaction();

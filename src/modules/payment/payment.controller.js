@@ -1,6 +1,7 @@
 import catchAsync from "../../utils/catchAsync.js";
 import sendResponse from "../../utils/sendResponse.js";
 import PaymentService from "./payment.service.js";
+import PayPalService from "./paypal.service.js";
 import ApiError from "../../utils/ApiError.js";
 
 const createCheckoutSession = catchAsync(async (req, res) => {
@@ -112,9 +113,71 @@ const verifySession = catchAsync(async (req, res) => {
   });
 });
 
+// ==================== PAYPAL CONTROLLERS ====================
+
+const createPayPalOrder = catchAsync(async (req, res) => {
+  if (req.user?.role === "admin") {
+    throw new ApiError(403, "Administrators cannot purchase their own books.");
+  }
+
+  const { orderId } = req.body;
+  const userId = req.user?.id || null;
+
+  const result = await PayPalService.createOrder(orderId, userId);
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "PayPal order created successfully",
+    data: result,
+  });
+});
+
+const capturePayPalOrder = catchAsync(async (req, res) => {
+  if (req.user?.role === "admin") {
+    throw new ApiError(403, "Administrators cannot purchase their own books.");
+  }
+
+  const { paypalOrderId, orderId } = req.body;
+  const userId = req.user?.id || null;
+
+  const result = await PayPalService.captureOrder(paypalOrderId, orderId, userId);
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "PayPal payment captured successfully",
+    data: result,
+  });
+});
+
+const paypalWebhookHandler = catchAsync(async (req, res) => {
+  // Verify webhook signature with PayPal
+  const isVerified = await PayPalService.verifyWebhookSignature(
+    req.headers,
+    req.body
+  );
+
+  if (!isVerified) {
+    throw new ApiError(400, "Invalid PayPal webhook signature");
+  }
+
+  const result = await PayPalService.handleWebhookEvent(req.body);
+
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "PayPal webhook processed successfully",
+    data: result,
+  });
+});
+
 export const PaymentController = {
   createCheckoutSession,
   retryPayment,
   webhookHandler,
   verifySession,
+  createPayPalOrder,
+  capturePayPalOrder,
+  paypalWebhookHandler,
 };

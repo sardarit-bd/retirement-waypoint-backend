@@ -97,7 +97,7 @@ const orderSchema = new mongoose.Schema(
       trim: true,
       maxlength: [500, "Notes cannot exceed 500 characters"],
     },
-    // Future Stripe fields
+    // Stripe fields
     stripeSessionId: {
       type: String,
       default: null,
@@ -111,6 +111,23 @@ const orderSchema = new mongoose.Schema(
     checkoutUrl: {
       type: String,
       default: null,
+    },
+    // PayPal fields
+    paypalOrderId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    paypalCaptureId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    paypalPayerEmail: {
+      type: String,
+      default: null,
+      trim: true,
+      lowercase: true,
     },
     // Secure token download for guests
     downloadToken: {

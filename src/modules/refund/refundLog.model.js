@@ -10,7 +10,7 @@ const refundLogSchema = new mongoose.Schema(
     },
     action: {
       type: String,
-      enum: ["REQUESTED", "APPROVED", "REJECTED", "COMPLETED", "STRIPE_REFUND", "REVOKED"],
+      enum: ["REQUESTED", "APPROVED", "REJECTED", "COMPLETED", "STRIPE_REFUND", "PAYPAL_REFUND", "REVOKED"],
       required: [true, "Action is required"],
     },
     performedBy: {

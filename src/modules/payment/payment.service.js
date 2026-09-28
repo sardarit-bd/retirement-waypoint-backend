@@ -10,6 +10,7 @@ import PurchaseService from "../purchase/purchase.service.js";
 import InvoiceService from "../invoice/invoice.service.js";
 import { Book } from "../book/book.model.js";
 import { sendEmail } from "../../config/mailer.js";
+import AuthService from "../auth/auth.service.js";
 
 class PaymentServiceClass {
   /**
@@ -35,21 +36,8 @@ class PaymentServiceClass {
       );
     }
 
-    // Build line items from order items
-    const lineItems = order.items.map((item) => ({
-      price_data: {
-        currency: "usd",
-        product_data: {
-          name: item.bookTitle,
-          metadata: {
-            bookId: item.bookId,
-            orderId,
-          },
-        },
-        unit_amount: Math.round(order.totalAmount * 100),
-      },
-      quantity: 1,
-    }));
+    // Build accurate line items matching authoritative order.totalAmount
+    const lineItems = this.buildStripeLineItems(order);
 
     // Create checkout session parameters
     const sessionParams = {
@@ -117,7 +105,84 @@ class PaymentServiceClass {
   // }
 
   /**
-   * Handle successful payment (called from webhook)
+   * Helper to build accurate Stripe line items ensuring the sum matches order.totalAmount in cents
+   */
+  buildStripeLineItems(order) {
+    const totalCents = Math.round(Number(order.totalAmount) * 100);
+    const orderIdStr = order._id ? order._id.toString() : "";
+
+    // 1. Single item in order: charge exact order.totalAmount in cents
+    if (!order.items || order.items.length <= 1) {
+      const singleItem = order.items?.[0] || { bookTitle: "Retirement Waypoint Digital Book" };
+      return [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: singleItem.bookTitle,
+              metadata: {
+                bookId: singleItem.bookId || "",
+                orderId: orderIdStr,
+              },
+            },
+            unit_amount: totalCents,
+          },
+          quantity: 1,
+        },
+      ];
+    }
+
+    // 2. Multiple items with coupon discount: prorate discount across items so total sum equals totalCents
+    if (order.discountAmount && Number(order.discountAmount) > 0) {
+      let allocatedCents = 0;
+      const subtotalSafe = Number(order.subtotal) || 1;
+
+      return order.items.map((item, index) => {
+        let itemCents;
+        if (index === order.items.length - 1) {
+          itemCents = totalCents - allocatedCents;
+        } else {
+          const ratio = (Number(item.bookPrice) || 0) / subtotalSafe;
+          itemCents = Math.round(totalCents * ratio);
+          allocatedCents += itemCents;
+        }
+
+        return {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: item.bookTitle,
+              metadata: {
+                bookId: item.bookId || "",
+                orderId: orderIdStr,
+              },
+            },
+            unit_amount: Math.max(0, itemCents),
+          },
+          quantity: 1,
+        };
+      });
+    }
+
+    // 3. Multiple items without discount: each item at its exact price in cents
+    return order.items.map((item) => ({
+      price_data: {
+        currency: "usd",
+        product_data: {
+          name: item.bookTitle,
+          metadata: {
+            bookId: item.bookId || "",
+            orderId: orderIdStr,
+          },
+        },
+        unit_amount: Math.round(Number(item.bookPrice) * 100),
+      },
+      quantity: 1,
+    }));
+  }
+
+  /**
+   * Handle successful payment (called from Stripe webhook)
    */
   async handlePaymentSuccess(session) {
     const orderId = session.metadata?.orderId || session.client_reference_id;
@@ -126,13 +191,25 @@ class PaymentServiceClass {
       throw new Error("Order ID not found in session metadata");
     }
 
+    return this.fulfillPaidOrder(orderId, {
+      paymentMethod: "stripe",
+      stripePaymentIntentId: session.payment_intent,
+      stripeSessionId: session.id,
+    });
+  }
+
+  /**
+   * Universal Order Fulfillment Service (Shared by Stripe and PayPal)
+   * Handles payment status update, purchase access, guest tokens, invoices, and confirmation emails
+   */
+  async fulfillPaidOrder(orderId, paymentMetadata = {}) {
     const existingOrder = await Order.findById(orderId);
     if (!existingOrder) {
       throw new Error(`Order ${orderId} not found`);
     }
 
     if (existingOrder.paymentStatus === "PAID") {
-      console.log(`⚠️ Order ${orderId} already paid, skipping webhook`);
+      console.log(`⚠️ Order ${orderId} already paid, skipping duplicate fulfillment`);
       return {
         success: true,
         message: "Order already processed",
@@ -140,13 +217,30 @@ class PaymentServiceClass {
       };
     }
 
-    // Update order
+    // Update order payment status with provider identifiers
+    const paymentUpdateData = {
+      paymentMethod: paymentMetadata.paymentMethod || "stripe",
+      ...(paymentMetadata.stripePaymentIntentId && {
+        stripePaymentIntentId: paymentMetadata.stripePaymentIntentId,
+      }),
+      ...(paymentMetadata.stripeSessionId && {
+        stripeSessionId: paymentMetadata.stripeSessionId,
+      }),
+      ...(paymentMetadata.paypalOrderId && {
+        paypalOrderId: paymentMetadata.paypalOrderId,
+      }),
+      ...(paymentMetadata.paypalCaptureId && {
+        paypalCaptureId: paymentMetadata.paypalCaptureId,
+      }),
+      ...(paymentMetadata.paypalPayerEmail && {
+        paypalPayerEmail: paymentMetadata.paypalPayerEmail,
+      }),
+    };
+
     const updatedOrder = await OrderService.updatePaymentStatus(
       orderId,
       "PAID",
-      {
-        stripePaymentIntentId: session.payment_intent,
-      },
+      paymentUpdateData
     );
 
     await OrderService.updateOrderStatus(orderId, "COMPLETED");
@@ -184,19 +278,28 @@ class PaymentServiceClass {
     updatedOrder.reviewToken = reviewToken;
     updatedOrder.reviewTokenExpiresAt = reviewTokenExpiresAt;
 
-    // Create purchases
+    // Create purchases for library access
     const purchaseResult =
       await PurchaseService.createPurchaseAfterPayment(orderId);
 
-    // Using static import - NO dynamic import
-    const invoice = await InvoiceService.createInvoice(orderId);
+    // Create Invoice
+    let invoice = null;
+    try {
+      invoice = await InvoiceService.createInvoice(orderId);
+    } catch (invErr) {
+      console.error("❌ Failed to generate invoice:", invErr.message);
+    }
 
-    // RECORD COUPON USAGE
+    // Record coupon usage
     if (updatedOrder.couponId && updatedOrder.userId) {
-      await OrderService.recordCouponUsageAfterPayment(
-        orderId,
-        updatedOrder.userId,
-      );
+      try {
+        await OrderService.recordCouponUsageAfterPayment(
+          orderId,
+          updatedOrder.userId
+        );
+      } catch (couponErr) {
+        console.error("❌ Failed to record coupon usage:", couponErr.message);
+      }
     }
 
     // Send fulfillment confirmation email
@@ -447,21 +550,8 @@ class PaymentServiceClass {
       throw new ApiError(400, "No items found in this order");
     }
 
-    // 5. Build line items for Stripe from order items
-    const lineItems = order.items.map((item) => ({
-      price_data: {
-        currency: "usd",
-        product_data: {
-          name: item.bookTitle,
-          metadata: {
-            bookId: item.bookId,
-            orderId: order._id.toString(),
-          },
-        },
-        unit_amount: Math.round(item.bookPrice * 100),
-      },
-      quantity: 1,
-    }));
+    // 5. Build accurate line items for Stripe from order items matching order.totalAmount
+    const lineItems = this.buildStripeLineItems(order);
 
     // 6. Create new Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
