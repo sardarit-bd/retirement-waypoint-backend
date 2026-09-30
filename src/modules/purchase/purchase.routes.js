@@ -52,7 +52,7 @@ router.get(
 // ============================================================
 
 // 5. Get purchase with book details by purchase ID
-//    ✅ specific pattern BEFORE generic /:id
+//    specific pattern BEFORE generic /:id
 router.get(
   "/:id/with-details",
   validate(getPurchaseByIdValidation),
