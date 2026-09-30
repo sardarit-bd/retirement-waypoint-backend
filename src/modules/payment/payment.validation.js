@@ -14,6 +14,21 @@ export const retryPaymentValidation = z.object({
   }),
 });
 
+// Create PayPal order validation
+export const createPayPalOrderValidation = z.object({
+  body: z.object({
+    orderId: z.string().min(1, "Order ID is required"),
+  }),
+});
+
+// Capture PayPal payment validation
+export const capturePayPalOrderValidation = z.object({
+  body: z.object({
+    paypalOrderId: z.string().min(1, "PayPal Order ID is required"),
+    orderId: z.string().optional(),
+  }),
+});
+
 // Stripe webhook validation (no Zod needed - raw body)
 export const validate = (schema) => {
   return async (req, res, next) => {

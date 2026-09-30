@@ -65,6 +65,11 @@ const refundRequestSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    paypalRefundId: {
+      type: String,
+      default: null,
+      index: true,
+    },
     requestedAt: {
       type: Date,
       default: Date.now,

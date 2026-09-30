@@ -124,7 +124,7 @@ class OrderServiceClass {
             orderStatus: "PENDING",
           },
         ],
-        { session },
+        { session, ordered: true },
       );
 
       const orderItemsWithOrderId = orderItems.map((item) => ({
@@ -134,6 +134,7 @@ class OrderServiceClass {
 
       await OrderItem.create(orderItemsWithOrderId, {
         session,
+        ordered: true,
       });
 
       await session.commitTransaction();
@@ -309,17 +310,25 @@ class OrderServiceClass {
   }
 
   // Update payment status
-  async updatePaymentStatus(orderId, paymentStatus, stripeData = {}) {
+  async updatePaymentStatus(orderId, paymentStatus, paymentData = {}) {
     const order = await Order.findById(orderId);
     if (!order) {
       throw new ApiError(404, "Order not found");
     }
 
     const updateData = { paymentStatus };
-    if (stripeData.stripeSessionId)
-      updateData.stripeSessionId = stripeData.stripeSessionId;
-    if (stripeData.stripePaymentIntentId)
-      updateData.stripePaymentIntentId = stripeData.stripePaymentIntentId;
+    if (paymentData.paymentMethod)
+      updateData.paymentMethod = paymentData.paymentMethod;
+    if (paymentData.stripeSessionId)
+      updateData.stripeSessionId = paymentData.stripeSessionId;
+    if (paymentData.stripePaymentIntentId)
+      updateData.stripePaymentIntentId = paymentData.stripePaymentIntentId;
+    if (paymentData.paypalOrderId)
+      updateData.paypalOrderId = paymentData.paypalOrderId;
+    if (paymentData.paypalCaptureId)
+      updateData.paypalCaptureId = paymentData.paypalCaptureId;
+    if (paymentData.paypalPayerEmail)
+      updateData.paypalPayerEmail = paymentData.paypalPayerEmail;
 
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,
@@ -468,7 +477,7 @@ class OrderServiceClass {
             orderStatus: "PENDING",
           },
         ],
-        { session },
+        { session, ordered: true },
       );
 
       // Create order items
@@ -477,7 +486,7 @@ class OrderServiceClass {
         orderId: order[0]._id,
       }));
 
-      await OrderItem.create(orderItemsWithOrderId, { session });
+      await OrderItem.create(orderItemsWithOrderId, { session, ordered: true });
 
       await session.commitTransaction();
 

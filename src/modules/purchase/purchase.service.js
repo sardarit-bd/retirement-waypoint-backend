@@ -52,7 +52,7 @@ class PurchaseServiceClass {
               accessStatus: "ACTIVE",
             },
           ],
-          { session },
+          { session, ordered: true },
         );
         purchases.push(purchase[0]);
       }
@@ -135,7 +135,7 @@ class PurchaseServiceClass {
               accessStatus: "ACTIVE",
             },
           ],
-          { session },
+          { session, ordered: true },
         );
 
         purchases.push(purchase[0]);
