@@ -172,6 +172,18 @@ const paypalWebhookHandler = catchAsync(async (req, res) => {
   });
 });
 
+const getPayPalConfig = catchAsync(async (req, res) => {
+  sendResponse(res, {
+    success: true,
+    statusCode: 200,
+    message: "PayPal configuration retrieved successfully",
+    data: {
+      clientId: process.env.PAYPAL_CLIENT_ID || "",
+      mode: (process.env.PAYPAL_MODE || "sandbox").toLowerCase(),
+    },
+  });
+});
+
 export const PaymentController = {
   createCheckoutSession,
   retryPayment,
@@ -180,4 +192,5 @@ export const PaymentController = {
   createPayPalOrder,
   capturePayPalOrder,
   paypalWebhookHandler,
+  getPayPalConfig,
 };

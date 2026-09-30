@@ -41,6 +41,9 @@ router.post(
   PaymentController.capturePayPalOrder
 );
 
+// PayPal public configuration (exposes Client ID for frontend SDK)
+router.get("/paypal/config", PaymentController.getPayPalConfig);
+
 // Verify payment checkout session and retrieve order download info
 router.get("/verify-session", PaymentController.verifySession);
 

@@ -124,7 +124,7 @@ class OrderServiceClass {
             orderStatus: "PENDING",
           },
         ],
-        { session },
+        { session, ordered: true },
       );
 
       const orderItemsWithOrderId = orderItems.map((item) => ({
@@ -134,6 +134,7 @@ class OrderServiceClass {
 
       await OrderItem.create(orderItemsWithOrderId, {
         session,
+        ordered: true,
       });
 
       await session.commitTransaction();
@@ -476,7 +477,7 @@ class OrderServiceClass {
             orderStatus: "PENDING",
           },
         ],
-        { session },
+        { session, ordered: true },
       );
 
       // Create order items
@@ -485,7 +486,7 @@ class OrderServiceClass {
         orderId: order[0]._id,
       }));
 
-      await OrderItem.create(orderItemsWithOrderId, { session });
+      await OrderItem.create(orderItemsWithOrderId, { session, ordered: true });
 
       await session.commitTransaction();
 
