@@ -1,4 +1,5 @@
 import { AssessmentSubmission } from "./assessmentSubmission.model.js";
+import { escapeRegex } from "../../utils/regexHelpers.js";
 
 
 class AssessmentSubmissionRepository {
@@ -147,7 +148,7 @@ class AssessmentSubmissionRepository {
 
     // Search by name or email
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), 'i');
+      const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
       match.$or = [
         { 'participant.name': searchRegex },
         { 'participant.email': searchRegex },
@@ -325,7 +326,7 @@ class AssessmentSubmissionRepository {
 
     // Search by name or email
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), 'i');
+      const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
       query.$or = [
         { 'participant.name': searchRegex },
         { 'participant.email': searchRegex },
@@ -422,7 +423,7 @@ class AssessmentSubmissionRepository {
     const query = {};
 
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), 'i');
+      const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
       query.$or = [
         { 'participant.name': searchRegex },
         { 'participant.email': searchRegex },

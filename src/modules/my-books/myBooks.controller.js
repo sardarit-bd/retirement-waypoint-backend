@@ -33,6 +33,10 @@ const getMyBooks = catchAsync(async (req, res) => {
  * GET /api/my-books/:bookId
  */
 const getMyBookById = catchAsync(async (req, res) => {
+  if (req.user?.id && req.user?.email) {
+    await OrderService.claimGuestOrders(req.user.id, req.user.email);
+  }
+
   const { bookId } = req.params;
   const book = await MyBooksService.getUserBookById(
     req.user.id,
@@ -53,6 +57,10 @@ const getMyBookById = catchAsync(async (req, res) => {
  * GET /api/my-books/:bookId/download
  */
 const downloadBook = catchAsync(async (req, res) => {
+  if (req.user?.id && req.user?.email) {
+    await OrderService.claimGuestOrders(req.user.id, req.user.email);
+  }
+
   const { bookId } = req.params;
   
   const ipAddress = req.ip || req.connection.remoteAddress || req.headers["x-forwarded-for"] || "unknown";
@@ -79,6 +87,10 @@ const downloadBook = catchAsync(async (req, res) => {
  * GET /api/my-books/:bookId/read
  */
 const getReadUrl = catchAsync(async (req, res) => {
+  if (req.user?.id && req.user?.email) {
+    await OrderService.claimGuestOrders(req.user.id, req.user.email);
+  }
+
   const { bookId } = req.params;
   
   const result = await MyBooksService.generateReadUrl(
@@ -100,6 +112,10 @@ const getReadUrl = catchAsync(async (req, res) => {
  * GET /api/my-books/:bookId/stream
  */
 const streamPdf = catchAsync(async (req, res) => {
+  if (req.user?.id && req.user?.email) {
+    await OrderService.claimGuestOrders(req.user.id, req.user.email);
+  }
+
   const { bookId } = req.params;
   
   const ipAddress = req.ip || req.connection.remoteAddress || req.headers["x-forwarded-for"] || "unknown";
