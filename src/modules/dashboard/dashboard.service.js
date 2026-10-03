@@ -9,12 +9,12 @@ class DashboardServiceClass {
   /**
    * Get user dashboard data
    */
-  async getDashboardData(userId) {
+  async getDashboardData(userId, email = null) {
     const [stats, recentBooks, recentOrders, activities, assessment] = await Promise.all([
-      this.getUserStats(userId),
-      this.getRecentBooks(userId, 4),
-      this.getRecentOrders(userId, 3),
-      this.getActivityTimeline(userId, 5),
+      this.getUserStats(userId, email),
+      this.getRecentBooks(userId, 4, email),
+      this.getRecentOrders(userId, 3, email),
+      this.getActivityTimeline(userId, 5, email),
       this.getAssessmentProgress(userId),
     ]);
 
@@ -28,10 +28,31 @@ class DashboardServiceClass {
     };
   }
 
-  async getUserStats(userId) {
+  async getUserStats(userId, email = null) {
+    const purchaseFilter = {
+      accessStatus: "ACTIVE",
+      ...(email
+        ? {
+            $or: [
+              { userId: String(userId) },
+              { customerEmail: email.toLowerCase().trim() },
+            ],
+          }
+        : { userId: String(userId) }),
+    };
+
+    const orderFilter = email
+      ? {
+          $or: [
+            { userId: String(userId) },
+            { guestEmail: email.toLowerCase().trim() },
+          ],
+        }
+      : { userId: String(userId) };
+
     const [books, orders, assessments, reviews] = await Promise.all([
-      Purchase.countDocuments({ userId, accessStatus: "ACTIVE" }),
-      Order.countDocuments({ userId }),
+      Purchase.countDocuments(purchaseFilter),
+      Order.countDocuments(orderFilter),
       AssessmentSubmission.countDocuments({ userId }), // ✅ FIXED
       Review.countDocuments({ userId }),
     ]);
@@ -39,11 +60,20 @@ class DashboardServiceClass {
     return { books, orders, assessments, reviews };
   }
 
-  async getRecentBooks(userId, limit = 4) {
-    const purchases = await Purchase.find({
-      userId,
+  async getRecentBooks(userId, limit = 4, email = null) {
+    const filter = {
       accessStatus: "ACTIVE",
-    })
+      ...(email
+        ? {
+            $or: [
+              { userId: String(userId) },
+              { customerEmail: email.toLowerCase().trim() },
+            ],
+          }
+        : { userId: String(userId) }),
+    };
+
+    const purchases = await Purchase.find(filter)
       .sort({ purchasedAt: -1 })
       .limit(limit);
 
@@ -68,8 +98,17 @@ class DashboardServiceClass {
     }));
   }
 
-  async getRecentOrders(userId, limit = 3) {
-    const orders = await Order.find({ userId })
+  async getRecentOrders(userId, limit = 3, email = null) {
+    const filter = email
+      ? {
+          $or: [
+            { userId: String(userId) },
+            { guestEmail: email.toLowerCase().trim() },
+          ],
+        }
+      : { userId: String(userId) };
+
+    const orders = await Order.find(filter)
       .sort({ createdAt: -1 })
       .limit(limit);
 
@@ -83,10 +122,31 @@ class DashboardServiceClass {
     }));
   }
 
-  async getActivityTimeline(userId, limit = 5) {
+  async getActivityTimeline(userId, limit = 5, email = null) {
     const activities = [];
 
-    const orders = await Order.find({ userId })
+    const orderFilter = email
+      ? {
+          $or: [
+            { userId: String(userId) },
+            { guestEmail: email.toLowerCase().trim() },
+          ],
+        }
+      : { userId: String(userId) };
+
+    const purchaseFilter = {
+      accessStatus: "ACTIVE",
+      ...(email
+        ? {
+            $or: [
+              { userId: String(userId) },
+              { customerEmail: email.toLowerCase().trim() },
+            ],
+          }
+        : { userId: String(userId) }),
+    };
+
+    const orders = await Order.find(orderFilter)
       .sort({ createdAt: -1 })
       .limit(2);
 
@@ -98,7 +158,7 @@ class DashboardServiceClass {
       });
     });
 
-    const purchases = await Purchase.find({ userId })
+    const purchases = await Purchase.find(purchaseFilter)
       .sort({ purchasedAt: -1 })
       .limit(2);
 

@@ -165,7 +165,7 @@ class MyBooksServiceClass {
       };
     }
 
-    const books = await Book.find(bookFilter).select("-pdfFile -pdfFilePublicId");
+    const books = await Book.find(bookFilter).select("+pdfFile +pdfFilePublicId");
 
     // Create book map for quick lookup
     const bookMap = new Map();
@@ -300,23 +300,25 @@ class MyBooksServiceClass {
     }
 
     // Get book with PDF details
-    const book = await Book.findById(bookId).select("+pdfFilePublicId");
+    const book = await Book.findById(bookId).select("+pdfFile +pdfFilePublicId");
     if (!book) {
       throw new ApiError(404, "Book not found");
     }
 
-    if (!book.pdfFilePublicId) {
+    if (!book.pdfFile && !book.pdfFilePublicId) {
       throw new ApiError(500, "Book PDF not available");
     }
 
-    // Generate signed URL with 15-minute expiry
     const downloadFileName = `${book.slug}.pdf`;
-    const signedUrl = cloudinary.url(book.pdfFilePublicId, {
-      resource_type: "raw",
-      secure: true,
-      sign_url: true,
-      expires_at: Math.floor(Date.now() / 1000) + 900, // 15 minutes
-    });
+    let downloadUrl = book.pdfFile;
+    if (!downloadUrl && book.pdfFilePublicId) {
+      downloadUrl = cloudinary.url(book.pdfFilePublicId, {
+        resource_type: "raw",
+        secure: true,
+        sign_url: true,
+        expires_at: Math.floor(Date.now() / 1000) + 900, // 15 minutes
+      });
+    }
 
     // Log download
     await DownloadLog.create({
@@ -329,7 +331,7 @@ class MyBooksServiceClass {
     });
 
     return {
-      downloadUrl: signedUrl,
+      downloadUrl,
       expiresIn: "15 minutes",
       bookTitle: book.title,
       fileName: downloadFileName,
@@ -347,25 +349,27 @@ class MyBooksServiceClass {
     }
 
     // Get book with PDF details
-    const book = await Book.findById(bookId).select("+pdfFilePublicId");
+    const book = await Book.findById(bookId).select("+pdfFile +pdfFilePublicId");
     if (!book) {
       throw new ApiError(404, "Book not found");
     }
 
-    if (!book.pdfFilePublicId) {
+    if (!book.pdfFile && !book.pdfFilePublicId) {
       throw new ApiError(500, "Book PDF not available");
     }
 
-    // Generate signed URL with longer expiry for reading
-    const signedUrl = cloudinary.url(book.pdfFilePublicId, {
-      resource_type: "raw",
-      secure: true,
-      sign_url: true,
-      expires_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour
-    });
+    let pdfUrl = book.pdfFile;
+    if (!pdfUrl && book.pdfFilePublicId) {
+      pdfUrl = cloudinary.url(book.pdfFilePublicId, {
+        resource_type: "raw",
+        secure: true,
+        sign_url: true,
+        expires_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour
+      });
+    }
 
     return {
-      pdfUrl: signedUrl,
+      pdfUrl,
       expiresIn: "1 hour",
       bookTitle: book.title,
       bookId: book._id,
@@ -384,20 +388,22 @@ class MyBooksServiceClass {
     }
 
     // Get book with PDF details
-    const book = await Book.findById(bookId).select("+pdfFilePublicId");
+    const book = await Book.findById(bookId).select("+pdfFile +pdfFilePublicId");
     if (!book) {
       throw new ApiError(404, "Book not found");
     }
 
-    if (!book.pdfFilePublicId) {
+    if (!book.pdfFile && !book.pdfFilePublicId) {
       throw new ApiError(500, "Book PDF not available");
     }
 
-    // Get the PDF URL (Cloudinary direct URL)
-    const pdfUrl = cloudinary.url(book.pdfFilePublicId, {
-      resource_type: "raw",
-      secure: true,
-    });
+    let pdfUrl = book.pdfFile;
+    if (!pdfUrl && book.pdfFilePublicId) {
+      pdfUrl = cloudinary.url(book.pdfFilePublicId, {
+        resource_type: "raw",
+        secure: true,
+      });
+    }
 
     // Log download
     await DownloadLog.create({
