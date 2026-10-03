@@ -10,6 +10,7 @@ import CouponService from "../coupon/coupon.service.js";
 import AuthService from "../auth/auth.service.js";
 import cloudinary from "../../config/cloudinary.js";
 import { DownloadLog } from "../download/downloadLog.model.js";
+import { escapeRegex } from "../../utils/regexHelpers.js";
 
 class OrderServiceClass {
   // Create order with items
@@ -265,7 +266,7 @@ class OrderServiceClass {
 
     if (search && search.trim()) {
       filter.orderNumber = {
-        $regex: search.trim(),
+        $regex: escapeRegex(search.trim()),
         $options: "i",
       };
     }
@@ -363,8 +364,19 @@ class OrderServiceClass {
   }
 
   // Check if user owns order
-  async isOrderOwner(orderId, userId) {
-    const order = await Order.findOne({ _id: orderId, userId });
+  async isOrderOwner(orderId, userId, userEmail = null) {
+    const filter = { _id: orderId };
+    if (userEmail) {
+      const emailRegex = new RegExp(`^${escapeRegex(userEmail.trim())}$`, "i");
+      filter.$or = [
+        { userId: String(userId) },
+        { guestEmail: userEmail.toLowerCase().trim() },
+        { guestEmail: emailRegex },
+      ];
+    } else {
+      filter.userId = String(userId);
+    }
+    const order = await Order.findOne(filter);
     return !!order;
   }
 
@@ -738,11 +750,7 @@ class OrderServiceClass {
 
     try {
       const normalizedEmail = email.toLowerCase().trim();
-      const escapedEmail = normalizedEmail.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        "\\$&",
-      );
-      const emailRegex = new RegExp(`^${escapedEmail}$`, "i");
+      const emailRegex = new RegExp(`^${escapeRegex(normalizedEmail)}$`, "i");
 
       // 1. Link guest orders to the newly authenticated userId
       const orderUpdateResult = await Order.updateMany(

@@ -4,6 +4,7 @@ import { Book } from "./book.model.js";
 import ApiError from "../../utils/ApiError.js";
 import UploadService from "../upload/upload.service.js";
 import { Purchase } from "../purchase/purchase.model.js";
+import { escapeRegex } from "../../utils/regexHelpers.js";
 
 // In-memory cache for generated preview PDFs.
 // Keyed by `${bookId}_${updatedAt}_${endPage}` so it self-invalidates
@@ -111,10 +112,12 @@ class BookServiceClass {
       }
     );
 
-    // Upload PDF file using UploadService
+    // Upload PDF file using UploadService with authenticated delivery
     const pdfUpload = await UploadService.uploadFileWithValidation(pdfFile, {
       folder: "retirement-waypoint/books/pdfs",
       resource_type: "raw",
+      type: "authenticated",
+      access_mode: "authenticated",
       allowedTypes: ["application/pdf"],
       maxSize: 50 * 1024 * 1024, // 50MB
     });
@@ -185,10 +188,12 @@ class BookServiceClass {
         await UploadService.deleteFile(book.pdfFilePublicId);
       }
 
-      // Upload new PDF
+      // Upload new PDF with authenticated delivery
       const pdfUpload = await UploadService.uploadFileWithValidation(pdfFile, {
         folder: "retirement-waypoint/books/pdfs",
         resource_type: "raw",
+        type: "authenticated",
+        access_mode: "authenticated",
         allowedTypes: ["application/pdf"],
         maxSize: 50 * 1024 * 1024,
       });
@@ -332,7 +337,7 @@ class BookServiceClass {
 
     // Search filter
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), "i");
+      const searchRegex = new RegExp(escapeRegex(search.trim()), "i");
       filter.$or = [
         { title: searchRegex },
         { description: searchRegex },
@@ -390,7 +395,7 @@ class BookServiceClass {
 
     // Search filter
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), "i");
+      const searchRegex = new RegExp(escapeRegex(search.trim()), "i");
       filter.$or = [
         { title: searchRegex },
         { description: searchRegex },

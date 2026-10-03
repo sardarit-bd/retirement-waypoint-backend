@@ -3,6 +3,7 @@ import { Coupon } from "./coupon.model.js";
 import { CouponUsage } from "./couponUsage.model.js";
 import { Order } from "../order/order.model.js";
 import ApiError from "../../utils/ApiError.js";
+import { escapeRegex } from "../../utils/regexHelpers.js";
 
 class CouponServiceClass {
   /**
@@ -245,7 +246,7 @@ class CouponServiceClass {
 
     // Search by code or name
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), "i");
+      const searchRegex = new RegExp(escapeRegex(search.trim()), "i");
       filter.$or = [{ code: searchRegex }, { name: searchRegex }];
     }
 
