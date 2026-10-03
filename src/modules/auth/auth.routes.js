@@ -36,6 +36,12 @@ router.patch(
   AuthController.updateProfileImage,
 );
 router.delete("/me/profile-image", protect, AuthController.removeProfileImage);
+router.post(
+  "/set-password",
+  express.json(),
+  protect,
+  AuthController.setPassword,
+);
 
 // Admin only routes
 router.get(
