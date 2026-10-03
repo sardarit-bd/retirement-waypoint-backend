@@ -13,7 +13,11 @@ const getMyBooks = catchAsync(async (req, res) => {
   }
 
   const query = req.validatedQuery || req.query;
-  const result = await MyBooksService.getUserBooks(req.user.id, query);
+  const result = await MyBooksService.getUserBooks(
+    req.user.id,
+    query,
+    req.user?.email,
+  );
 
   sendResponse(res, {
     success: true,
@@ -30,7 +34,11 @@ const getMyBooks = catchAsync(async (req, res) => {
  */
 const getMyBookById = catchAsync(async (req, res) => {
   const { bookId } = req.params;
-  const book = await MyBooksService.getUserBookById(req.user.id, bookId);
+  const book = await MyBooksService.getUserBookById(
+    req.user.id,
+    bookId,
+    req.user?.email,
+  );
 
   sendResponse(res, {
     success: true,
@@ -54,7 +62,8 @@ const downloadBook = catchAsync(async (req, res) => {
     req.user.id,
     bookId,
     ipAddress,
-    userAgent
+    userAgent,
+    req.user?.email,
   );
 
   sendResponse(res, {
@@ -74,7 +83,8 @@ const getReadUrl = catchAsync(async (req, res) => {
   
   const result = await MyBooksService.generateReadUrl(
     req.user.id,
-    bookId
+    bookId,
+    req.user?.email,
   );
 
   sendResponse(res, {
@@ -99,7 +109,8 @@ const streamPdf = catchAsync(async (req, res) => {
     req.user.id,
     bookId,
     ipAddress,
-    userAgent
+    userAgent,
+    req.user?.email,
   );
 
   // Set headers for PDF streaming

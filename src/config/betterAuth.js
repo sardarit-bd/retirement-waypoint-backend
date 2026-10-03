@@ -2,7 +2,7 @@ import "./env.js";
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { admin, emailOTP } from "better-auth/plugins";
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 import { UserProfile } from "../modules/auth/auth.model.js";
 import { sendEmail } from "./mailer.js";
 import { authAllowedHosts } from "./origins.js";
@@ -115,6 +115,7 @@ export const auth = betterAuth({
 
         try {
           if (type === "forget-password") {
+            console.log("➡️ [BetterAuth] Attempting to send OTP email to:", email);
             await sendEmail({
               to: email,
               subject: "Your password reset code - Retirement Waypoint",
@@ -152,6 +153,7 @@ export const auth = betterAuth({
           }
 
           if (type === "change-email") {
+            console.log("➡️ [BetterAuth] Attempting to send change-email OTP to:", email);
             await sendEmail({
               to: email,
               subject: "Verify your new email address - Retirement Waypoint",
@@ -189,6 +191,7 @@ export const auth = betterAuth({
           }
 
           // Catch-all for any other OTP types (e.g. email-verification, sign-in)
+          console.log(`➡️ [BetterAuth] Attempting to send generic OTP (${type}) to:`, email);
           await sendEmail({
             to: email,
             subject: "Your verification code - Retirement Waypoint",
@@ -214,9 +217,9 @@ export const auth = betterAuth({
             `,
           });
           console.log(`✅ [BetterAuth OTP] Generic OTP (${type}) sent to ${email}`);
-        } catch (err) {
-          console.error(`❌ [BetterAuth OTP] Failed to send OTP to ${email}:`, err.message);
-          throw err;
+        } catch (error) {
+          console.error("❌ [BetterAuth] OTP Email Dispatch Failed:", error.message, error.stack);
+          throw error;
         }
       },
     }),
@@ -247,18 +250,22 @@ export const auth = betterAuth({
         after: async (session) => {
           if (session?.userId) {
             try {
-              const user =
-                (await mongoClient
+              let user = null;
+              if (ObjectId.isValid(session.userId)) {
+                user = await mongoClient
                   .db()
                   .collection("user")
-                  .findOne({ _id: session.userId })) ||
-                (await mongoClient
+                  .findOne({ _id: new ObjectId(session.userId) });
+              }
+              if (!user) {
+                user = await mongoClient
                   .db()
                   .collection("user")
-                  .findOne({ id: session.userId }));
+                  .findOne({ id: session.userId });
+              }
               if (user?.email) {
                 await OrderService.claimGuestOrders(
-                  user.id || user._id,
+                  String(user.id || user._id),
                   user.email,
                 );
               }

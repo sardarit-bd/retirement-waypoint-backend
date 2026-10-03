@@ -315,6 +315,10 @@ class PaymentServiceClass {
         }
       }
 
+      if (!recipientEmail) {
+        console.warn("⚠️ Cannot send email: recipientEmail is missing for order", orderId);
+      }
+
       if (recipientEmail) {
         const orderItems = await OrderItem.find({ orderId: existingOrder._id });
         let bookSlug = null;
@@ -433,7 +437,7 @@ class PaymentServiceClass {
         console.log(`✅ Order fulfillment email sent to ${recipientEmail}`);
       }
     } catch (emailError) {
-      console.error("❌ Failed to send order fulfillment email:", emailError.message);
+      console.error("❌ Failed to send order fulfillment email:", emailError.code || emailError.message, emailError.stack);
     }
 
     return {
