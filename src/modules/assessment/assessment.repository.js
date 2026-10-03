@@ -1,4 +1,5 @@
 import Assessment from './assessment.model.js';
+import { escapeRegex } from '../../utils/regexHelpers.js';
 
 class AssessmentRepository {
   /**
@@ -53,7 +54,7 @@ class AssessmentRepository {
     }
     
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), 'i');
+      const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
       query.$or = [
         { 'hero.title': searchRegex },
         { slug: searchRegex },
