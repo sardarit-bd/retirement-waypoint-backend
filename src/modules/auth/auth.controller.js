@@ -216,6 +216,49 @@ const verifyEmail = catchAsync(async (req, res) => {
   });
 });
 
+const setPassword = catchAsync(async (req, res) => {
+  const { newPassword } = req.body;
+
+  if (!newPassword || typeof newPassword !== "string") {
+    return sendResponse(res, {
+      success: false,
+      statusCode: 400,
+      message: "New password is required",
+    });
+  }
+
+  if (newPassword.length < 8) {
+    return sendResponse(res, {
+      success: false,
+      statusCode: 400,
+      message: "Password must be at least 8 characters long",
+    });
+  }
+
+  try {
+    const result = await auth.api.setPassword({
+      body: { newPassword },
+      headers: req.headers,
+    });
+
+    sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: "Password set successfully",
+      data: result,
+    });
+  } catch (error) {
+    const message = error?.message || error?.body?.message || "Failed to set password";
+    const statusCode = error?.status || error?.statusCode || 400;
+
+    sendResponse(res, {
+      success: false,
+      statusCode,
+      message,
+    });
+  }
+});
+
 // Get better-auth API routes handler
 const authHandler = toNodeHandler(auth);
 
@@ -234,4 +277,5 @@ export const AuthController = {
   checkEmailExists,
   resendVerification,
   verifyEmail,
+  setPassword,
 };
