@@ -286,8 +286,8 @@ class OrderServiceClass {
           orderId: order._id,
         });
 
-        // Better Auth User
-        const user = await AuthService.getAuthUserById(order.userId);
+        // Better Auth User (only fetch if userId exists)
+        const user = order.userId ? await AuthService.getAuthUserById(order.userId) : null;
 
         return {
           ...order.toObject(),
@@ -299,7 +299,14 @@ class OrderServiceClass {
                 email: user.email,
                 image: user.image,
               }
-            : null,
+            : order.isGuest || order.guestEmail || order.guestName
+              ? {
+                  id: null,
+                  name: order.guestName,
+                  email: order.guestEmail,
+                  image: null,
+                }
+              : null,
         };
       }),
     );
