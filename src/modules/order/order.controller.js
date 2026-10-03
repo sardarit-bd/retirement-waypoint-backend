@@ -23,12 +23,22 @@ const getOrderById = catchAsync(async (req, res) => {
   const { id } = req.params;
   const order = await OrderService.getOrderById(id);
 
-  // Check if user is admin or order owner
-  const isAdmin = req.user.role === "admin";
-  const isOwner = await OrderService.isOrderOwner(id, req.user.id);
+  // Check if user is admin or order owner (registered userId or matching guestEmail)
+  const isAdmin = req.user?.role === "admin";
+  const isOwner = order.userId?.toString() === req.user?.id;
+  const isGuestOwner = Boolean(
+    order.guestEmail &&
+      req.user?.email &&
+      order.guestEmail.toLowerCase().trim() === req.user.email.toLowerCase().trim()
+  );
 
-  if (!isAdmin && !isOwner) {
+  if (!isAdmin && !isOwner && !isGuestOwner) {
     throw new ApiError(403, "You don't have permission to view this order");
+  }
+
+  // Automatically link guest order to authenticated user if not yet synced
+  if (req.user?.id && req.user?.email && isGuestOwner && !order.userId) {
+    await OrderService.claimGuestOrders(req.user.id, req.user.email);
   }
 
   sendResponse(res, {

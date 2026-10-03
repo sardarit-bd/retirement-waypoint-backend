@@ -3,11 +3,13 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import { sanitizeMongoInput } from './middleware/mongoSanitizeMiddleware.js';
 
 import { AuthRoutes } from './modules/auth/auth.routes.js';
 import apiRoutes from './routes/index.js';
 import errorMiddleware from './middleware/errorMiddleware.js';
 import { isAllowedOrigin } from './config/origins.js';
+import { globalLimiter, authLimiter } from './middleware/rateLimitMiddleware.js';
 
 dotenv.config();
 
@@ -40,9 +42,9 @@ app.use(
 );
 
 // =========================
-// Better Auth Routes
+// Better Auth Routes (Rate Limited)
 // =========================
-app.use('/api/auth', AuthRoutes);
+app.use('/api/auth', authLimiter, AuthRoutes);
 
 // =========================
 // Stripe Webhook (Raw Body)
@@ -53,15 +55,16 @@ app.use(
 );
 
 // =========================
-// Body Parser
+// Body Parser & NoSQL Injection Sanitization
 // =========================
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(sanitizeMongoInput);
 
 // =========================
-// API Routes
+// API Routes (Globally Rate Limited)
 // =========================
-app.use('/api', apiRoutes);
+app.use('/api', globalLimiter, apiRoutes);
 
 // =========================
 // Root Route

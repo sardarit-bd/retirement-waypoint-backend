@@ -25,11 +25,22 @@ class UploadServiceClass {
     }
 
     return new Promise((resolve, reject) => {
+      const isPdf =
+        actualOptions.resource_type === 'raw' ||
+        actualOptions.allowedTypes?.includes('application/pdf') ||
+        actualOptions.folder?.includes('pdfs');
+
       const uploadOptions = {
         folder: actualOptions.folder || 'retirement-waypoint/uploads',
-        resource_type: actualOptions.resource_type || 'auto',
+        resource_type: actualOptions.resource_type || (isPdf ? 'raw' : 'auto'),
         public_id: actualOptions.public_id,
         transformation: actualOptions.transformations || [],
+        ...(isPdf
+          ? {
+              type: 'authenticated',
+              access_mode: 'authenticated',
+            }
+          : {}),
         ...actualOptions,
       };
 
