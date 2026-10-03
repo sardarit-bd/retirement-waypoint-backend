@@ -8,6 +8,7 @@ import { Invoice } from "../invoice/invoice.model.js";
 import AuthService from "../auth/auth.service.js";
 import ApiError from "../../utils/ApiError.js";
 import cloudinary from "../../config/cloudinary.js";
+import { escapeRegex } from "../../utils/regexHelpers.js";
 
 class MyBooksServiceClass {
   /**
@@ -77,20 +78,112 @@ class MyBooksServiceClass {
   }
 
   /**
-   * Get purchase by user and book
+   * Get purchase by user and book with Order fallback
    */
   async getPurchaseByUserAndBook(userId, bookId, email = null) {
-    const userConditions = [{ userId: String(userId) }];
+    const userConditions = [];
+    if (userId) {
+      userConditions.push({ userId: String(userId) });
+    }
     if (email) {
-      userConditions.push({ customerEmail: email.toLowerCase().trim() });
+      const emailRegex = new RegExp(`^${escapeRegex(email.trim())}$`, "i");
+      userConditions.push(
+        { customerEmail: email.toLowerCase().trim() },
+        { customerEmail: emailRegex }
+      );
     }
 
-    const purchase = await Purchase.findOne({
-      $or: userConditions,
-      bookId,
-      accessStatus: "ACTIVE",
-    });
-    return purchase;
+    if (userConditions.length > 0) {
+      const purchase = await Purchase.findOne({
+        $or: userConditions,
+        bookId: String(bookId),
+        accessStatus: "ACTIVE",
+      });
+      if (purchase) {
+        if (userId && !purchase.userId) {
+          purchase.userId = String(userId);
+          await purchase.save().catch(() => {});
+        }
+        return purchase;
+      }
+    }
+
+    // ==================== ORDER FALLBACK ====================
+    // If no active Purchase document exists, check for a PAID Order containing this book
+    const orderConditions = [];
+    if (userId) {
+      orderConditions.push({ userId: String(userId) });
+    }
+    if (email) {
+      const emailRegex = new RegExp(`^${escapeRegex(email.trim())}$`, "i");
+      orderConditions.push(
+        { guestEmail: email.toLowerCase().trim() },
+        { guestEmail: emailRegex }
+      );
+    }
+
+    if (orderConditions.length > 0) {
+      const paidOrders = await Order.find({
+        paymentStatus: { $in: ["PAID", "paid"] },
+        $or: orderConditions,
+      }).sort({ createdAt: -1 });
+
+      if (paidOrders.length > 0) {
+        const orderIds = paidOrders.map((o) => o._id);
+        const orderItem = await OrderItem.findOne({
+          orderId: { $in: orderIds },
+          $or: [{ bookId: String(bookId) }, { bookId }],
+        });
+
+        if (orderItem) {
+          const matchingOrder = paidOrders.find(
+            (o) => o._id.toString() === orderItem.orderId.toString()
+          );
+
+          // Retroactively create missing Purchase in database for future queries
+          try {
+            const created = await Purchase.findOneAndUpdate(
+              {
+                orderId: orderItem.orderId,
+                bookId: String(bookId),
+              },
+              {
+                $setOnInsert: {
+                  userId: userId ? String(userId) : matchingOrder?.userId || null,
+                  customerEmail: email
+                    ? email.toLowerCase().trim()
+                    : matchingOrder?.guestEmail || null,
+                  bookId: String(bookId),
+                  orderId: orderItem.orderId,
+                  purchasedAt: matchingOrder?.createdAt || new Date(),
+                  accessStatus: "ACTIVE",
+                },
+              },
+              { upsert: true, new: true }
+            );
+            if (created) return created;
+          } catch (upsertErr) {
+            console.warn(
+              "Could not upsert fallback Purchase record, returning fallback object:",
+              upsertErr.message
+            );
+          }
+
+          // Return valid purchase object so caller proceeds with access
+          return {
+            _id: new mongoose.Types.ObjectId(),
+            userId: userId ? String(userId) : matchingOrder?.userId || null,
+            customerEmail: email || matchingOrder?.guestEmail || null,
+            bookId: String(bookId),
+            orderId: matchingOrder?._id || orderItem.orderId,
+            purchasedAt: matchingOrder?.createdAt || new Date(),
+            accessStatus: "ACTIVE",
+          };
+        }
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -109,10 +202,66 @@ class MyBooksServiceClass {
     const limitNumber = Math.min(Math.max(Number(limit) || 20, 1), 100);
     const skip = (pageNumber - 1) * limitNumber;
 
+    // Ensure any PAID orders for this user/email have Purchase records
+    if (userId || email) {
+      try {
+        const orderFilter = [];
+        if (userId) orderFilter.push({ userId: String(userId) });
+        if (email) {
+          const emailRegex = new RegExp(`^${escapeRegex(email.trim())}$`, "i");
+          orderFilter.push(
+            { guestEmail: email.toLowerCase().trim() },
+            { guestEmail: emailRegex }
+          );
+        }
+
+        const paidOrders = await Order.find({
+          paymentStatus: { $in: ["PAID", "paid"] },
+          $or: orderFilter,
+        }).select("_id userId guestEmail createdAt");
+
+        if (paidOrders.length > 0) {
+          const orderIds = paidOrders.map((o) => o._id);
+          const orderItems = await OrderItem.find({ orderId: { $in: orderIds } });
+
+          for (const item of orderItems) {
+            const matchingOrder = paidOrders.find(
+              (o) => o._id.toString() === item.orderId.toString()
+            );
+            await Purchase.findOneAndUpdate(
+              {
+                orderId: item.orderId,
+                bookId: String(item.bookId),
+              },
+              {
+                $setOnInsert: {
+                  userId: userId ? String(userId) : matchingOrder?.userId || null,
+                  customerEmail: email
+                    ? email.toLowerCase().trim()
+                    : matchingOrder?.guestEmail || null,
+                  bookId: String(item.bookId),
+                  orderId: item.orderId,
+                  purchasedAt: matchingOrder?.createdAt || new Date(),
+                  accessStatus: "ACTIVE",
+                },
+              },
+              { upsert: true }
+            ).catch(() => {});
+          }
+        }
+      } catch (syncErr) {
+        console.warn("Could not sync purchases from paid orders in getUserBooks:", syncErr.message);
+      }
+    }
+
     // Get all purchases for user with ACTIVE access (with email fallback)
     const userConditions = [{ userId: String(userId) }];
     if (email) {
-      userConditions.push({ customerEmail: email.toLowerCase().trim() });
+      const emailRegex = new RegExp(`^${escapeRegex(email.trim())}$`, "i");
+      userConditions.push(
+        { customerEmail: email.toLowerCase().trim() },
+        { customerEmail: emailRegex }
+      );
     }
 
     const filter = {
@@ -155,7 +304,7 @@ class MyBooksServiceClass {
     
     // Search filter
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), "i");
+      const searchRegex = new RegExp(escapeRegex(search.trim()), "i");
       bookFilter = {
         ...bookFilter,
         $or: [
@@ -265,11 +414,11 @@ class MyBooksServiceClass {
       throw new ApiError(404, "Book not found");
     }
 
-    // Get order and invoice
-    const order = await Order.findById(purchase.orderId);
-    const invoice = await Invoice.findOne({ orderId: purchase.orderId }).select(
-      "invoiceNumber"
-    );
+    // Get order and invoice safely
+    const order = purchase.orderId ? await Order.findById(purchase.orderId) : null;
+    const invoice = purchase.orderId
+      ? await Invoice.findOne({ orderId: purchase.orderId }).select("invoiceNumber")
+      : null;
 
     return {
       bookId: book._id,
@@ -309,16 +458,27 @@ class MyBooksServiceClass {
       throw new ApiError(500, "Book PDF not available");
     }
 
-    const downloadFileName = `${book.slug}.pdf`;
-    let downloadUrl = book.pdfFile;
-    if (!downloadUrl && book.pdfFilePublicId) {
-      downloadUrl = cloudinary.url(book.pdfFilePublicId, {
-        resource_type: "raw",
-        secure: true,
-        sign_url: true,
-        expires_at: Math.floor(Date.now() / 1000) + 900, // 15 minutes
-      });
+    const publicId =
+      book.pdfFilePublicId ||
+      (book.pdfFile ? book.pdfFile.match(/\/raw\/(?:upload|authenticated)\/(?:v\d+\/)?(.+?)(?:\.pdf)?$/i)?.[1] : null);
+
+    if (!publicId) {
+      throw new ApiError(500, "Book PDF storage identifier is missing");
     }
+
+    const downloadFileName = `${book.slug || "book"}.pdf`;
+    const downloadExpiresInSeconds = 5 * 60; // 5 minutes
+    const safeSlug = (book.slug || "book").replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    // Always generate signed, ephemeral authenticated URL with attachment flag
+    const downloadUrl = cloudinary.url(publicId, {
+      type: "authenticated",
+      resource_type: "raw",
+      secure: true,
+      sign_url: true,
+      flags: `attachment:${safeSlug}`,
+      expires_at: Math.floor(Date.now() / 1000) + downloadExpiresInSeconds,
+    });
 
     // Log download
     await DownloadLog.create({
@@ -332,7 +492,7 @@ class MyBooksServiceClass {
 
     return {
       downloadUrl,
-      expiresIn: "15 minutes",
+      expiresIn: "5 minutes",
       bookTitle: book.title,
       fileName: downloadFileName,
     };
@@ -358,19 +518,28 @@ class MyBooksServiceClass {
       throw new ApiError(500, "Book PDF not available");
     }
 
-    let pdfUrl = book.pdfFile;
-    if (!pdfUrl && book.pdfFilePublicId) {
-      pdfUrl = cloudinary.url(book.pdfFilePublicId, {
-        resource_type: "raw",
-        secure: true,
-        sign_url: true,
-        expires_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour
-      });
+    const publicId =
+      book.pdfFilePublicId ||
+      (book.pdfFile ? book.pdfFile.match(/\/raw\/(?:upload|authenticated)\/(?:v\d+\/)?(.+?)(?:\.pdf)?$/i)?.[1] : null);
+
+    if (!publicId) {
+      throw new ApiError(500, "Book PDF storage identifier is missing");
     }
+
+    const readExpiresInSeconds = 15 * 60; // 15 minutes
+
+    // Always generate signed, ephemeral authenticated URL for reader
+    const pdfUrl = cloudinary.url(publicId, {
+      type: "authenticated",
+      resource_type: "raw",
+      secure: true,
+      sign_url: true,
+      expires_at: Math.floor(Date.now() / 1000) + readExpiresInSeconds,
+    });
 
     return {
       pdfUrl,
-      expiresIn: "1 hour",
+      expiresIn: "15 minutes",
       bookTitle: book.title,
       bookId: book._id,
       purchaseId: purchase._id,
@@ -397,13 +566,21 @@ class MyBooksServiceClass {
       throw new ApiError(500, "Book PDF not available");
     }
 
-    let pdfUrl = book.pdfFile;
-    if (!pdfUrl && book.pdfFilePublicId) {
-      pdfUrl = cloudinary.url(book.pdfFilePublicId, {
-        resource_type: "raw",
-        secure: true,
-      });
+    const publicId =
+      book.pdfFilePublicId ||
+      (book.pdfFile ? book.pdfFile.match(/\/raw\/(?:upload|authenticated)\/(?:v\d+\/)?(.+?)(?:\.pdf)?$/i)?.[1] : null);
+
+    if (!publicId) {
+      throw new ApiError(500, "Book PDF storage identifier is missing");
     }
+
+    const pdfUrl = cloudinary.url(publicId, {
+      type: "authenticated",
+      resource_type: "raw",
+      secure: true,
+      sign_url: true,
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    });
 
     // Log download
     await DownloadLog.create({

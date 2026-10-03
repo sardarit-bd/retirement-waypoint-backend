@@ -8,6 +8,7 @@ import { Review } from "../review/review.model.js";
 import stripe from "../../config/stripe.js";
 import PayPalService from "../payment/paypal.service.js";
 import ApiError from "../../utils/ApiError.js";
+import { escapeRegex } from "../../utils/regexHelpers.js";
 
 class RefundServiceClass {
   /**
@@ -197,7 +198,7 @@ class RefundServiceClass {
 
     // Search by order number or user ID
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), "i");
+      const searchRegex = new RegExp(escapeRegex(search.trim()), "i");
       filter.$or = [
         { userId: searchRegex },
       ];

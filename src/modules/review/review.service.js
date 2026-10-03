@@ -7,6 +7,7 @@ import { OrderItem } from "../order/orderItem.model.js";
 import AuthService from "../auth/auth.service.js";
 import MyBooksService from "../my-books/myBooks.service.js";
 import ApiError from "../../utils/ApiError.js";
+import { escapeRegex } from "../../utils/regexHelpers.js";
 
 class ReviewServiceClass {
   /**
@@ -413,7 +414,7 @@ class ReviewServiceClass {
 
     // Search in title and comment
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), "i");
+      const searchRegex = new RegExp(escapeRegex(search.trim()), "i");
       filter.$or = [{ title: searchRegex }, { comment: searchRegex }];
     }
 

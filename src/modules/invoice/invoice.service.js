@@ -4,6 +4,7 @@ import { Order } from "../order/order.model.js";
 import { OrderItem } from "../order/orderItem.model.js";
 import { Book } from "../book/book.model.js";
 import ApiError from "../../utils/ApiError.js";
+import { escapeRegex } from "../../utils/regexHelpers.js";
 import { generateInvoicePDF } from "./invoice.pdf.js";
 import UploadService from "../upload/upload.service.js";
 
@@ -231,12 +232,13 @@ class InvoiceServiceClass {
 
     // Search by invoice number or order number
     if (search && search.trim()) {
+      const safeSearch = escapeRegex(search.trim());
       filter.$or = [
-        { invoiceNumber: { $regex: search.trim(), $options: "i" } },
+        { invoiceNumber: { $regex: safeSearch, $options: "i" } },
       ];
       // Also search by order number (requires separate query)
       const orders = await Order.find({
-        orderNumber: { $regex: search.trim(), $options: "i" },
+        orderNumber: { $regex: safeSearch, $options: "i" },
       }).select("_id");
       const orderIds = orders.map((o) => o._id);
       if (orderIds.length > 0) {
