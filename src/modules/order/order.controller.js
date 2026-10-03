@@ -45,7 +45,11 @@ const getMyOrders = catchAsync(async (req, res) => {
   }
 
   const query = req.validatedQuery || req.query;
-  const result = await OrderService.getUserOrders(req.user.id, query);
+  const result = await OrderService.getUserOrders(
+    req.user.id,
+    query,
+    req.user?.email,
+  );
 
   sendResponse(res, {
     success: true,

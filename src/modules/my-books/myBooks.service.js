@@ -79,9 +79,14 @@ class MyBooksServiceClass {
   /**
    * Get purchase by user and book
    */
-  async getPurchaseByUserAndBook(userId, bookId) {
+  async getPurchaseByUserAndBook(userId, bookId, email = null) {
+    const userConditions = [{ userId: String(userId) }];
+    if (email) {
+      userConditions.push({ customerEmail: email.toLowerCase().trim() });
+    }
+
     const purchase = await Purchase.findOne({
-      userId,
+      $or: userConditions,
       bookId,
       accessStatus: "ACTIVE",
     });
@@ -91,7 +96,7 @@ class MyBooksServiceClass {
   /**
    * Get all books purchased by user
    */
-  async getUserBooks(userId, query = {}) {
+  async getUserBooks(userId, query = {}, email = null) {
     const {
       page = 1,
       limit = 20,
@@ -104,9 +109,14 @@ class MyBooksServiceClass {
     const limitNumber = Math.min(Math.max(Number(limit) || 20, 1), 100);
     const skip = (pageNumber - 1) * limitNumber;
 
-    // Get all purchases for user with ACTIVE access
+    // Get all purchases for user with ACTIVE access (with email fallback)
+    const userConditions = [{ userId: String(userId) }];
+    if (email) {
+      userConditions.push({ customerEmail: email.toLowerCase().trim() });
+    }
+
     const filter = {
-      userId,
+      $or: userConditions,
       accessStatus: "ACTIVE",
     };
 
@@ -242,9 +252,9 @@ class MyBooksServiceClass {
   /**
    * Get single purchased book with details
    */
-  async getUserBookById(userId, bookId) {
+  async getUserBookById(userId, bookId, email = null) {
     // Verify purchase
-    const purchase = await this.getPurchaseByUserAndBook(userId, bookId);
+    const purchase = await this.getPurchaseByUserAndBook(userId, bookId, email);
     if (!purchase) {
       throw new ApiError(404, "Book not found in your library");
     }
@@ -282,9 +292,9 @@ class MyBooksServiceClass {
   /**
    * Generate secure download URL for book
    */
-  async generateSecureDownloadUrl(userId, bookId, ipAddress, userAgent) {
+  async generateSecureDownloadUrl(userId, bookId, ipAddress, userAgent, email = null) {
     // Verify purchase
-    const purchase = await this.getPurchaseByUserAndBook(userId, bookId);
+    const purchase = await this.getPurchaseByUserAndBook(userId, bookId, email);
     if (!purchase) {
       throw new ApiError(403, "You don't have access to this book");
     }
@@ -329,9 +339,9 @@ class MyBooksServiceClass {
   /**
    * Generate secure read URL for PDF viewer (longer expiry)
    */
-  async generateReadUrl(userId, bookId) {
+  async generateReadUrl(userId, bookId, email = null) {
     // Verify purchase
-    const purchase = await this.getPurchaseByUserAndBook(userId, bookId);
+    const purchase = await this.getPurchaseByUserAndBook(userId, bookId, email);
     if (!purchase) {
       throw new ApiError(403, "You don't have access to this book");
     }
@@ -366,9 +376,9 @@ class MyBooksServiceClass {
   /**
    * Stream PDF directly (with tracking)
    */
-  async streamBookPdf(userId, bookId, ipAddress, userAgent) {
+  async streamBookPdf(userId, bookId, ipAddress, userAgent, email = null) {
     // Verify purchase
-    const purchase = await this.getPurchaseByUserAndBook(userId, bookId);
+    const purchase = await this.getPurchaseByUserAndBook(userId, bookId, email);
     if (!purchase) {
       throw new ApiError(403, "You don't have access to this book");
     }

@@ -21,6 +21,9 @@ export const getTransporter = () => {
 
   try {
     transporter = nodemailer.createTransport({
+      pool: true,
+      maxConnections: 3,
+      maxMessages: 50,
       host,
       port,
       secure,
@@ -31,6 +34,9 @@ export const getTransporter = () => {
       tls: {
         rejectUnauthorized: false,
       },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
     });
 
     return transporter;

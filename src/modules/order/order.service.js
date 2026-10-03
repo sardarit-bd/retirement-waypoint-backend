@@ -189,7 +189,7 @@ class OrderServiceClass {
   }
 
   // Get user orders
-  async getUserOrders(userId, query = {}) {
+  async getUserOrders(userId, query = {}, email = null) {
     const {
       page = 1,
       limit = 20,
@@ -201,7 +201,14 @@ class OrderServiceClass {
     const limitNumber = Math.min(Math.max(Number(limit) || 20, 1), 100);
     const skip = (pageNumber - 1) * limitNumber;
 
-    const filter = { userId };
+    const filter = email
+      ? {
+          $or: [
+            { userId: String(userId) },
+            { guestEmail: email.toLowerCase().trim() },
+          ],
+        }
+      : { userId: String(userId) };
 
     const sort = {};
     sort[sortBy] = sortOrder === "asc" ? 1 : -1;
@@ -740,11 +747,17 @@ class OrderServiceClass {
       // 1. Link guest orders to the newly authenticated userId
       const orderUpdateResult = await Order.updateMany(
         {
-          $or: [{ guestEmail: normalizedEmail }, { guestEmail: emailRegex }],
-          $or: [
-            { userId: null },
-            { userId: "" },
-            { userId: { $exists: false } },
+          $and: [
+            {
+              $or: [{ guestEmail: normalizedEmail }, { guestEmail: emailRegex }],
+            },
+            {
+              $or: [
+                { userId: null },
+                { userId: "" },
+                { userId: { $exists: false } },
+              ],
+            },
           ],
         },
         {
@@ -763,14 +776,20 @@ class OrderServiceClass {
       // Link non-duplicate guest purchases
       const purchaseUpdateResult = await Purchase.updateMany(
         {
-          $or: [
-            { customerEmail: normalizedEmail },
-            { customerEmail: emailRegex },
-          ],
-          $or: [
-            { userId: null },
-            { userId: "" },
-            { userId: { $exists: false } },
+          $and: [
+            {
+              $or: [
+                { customerEmail: normalizedEmail },
+                { customerEmail: emailRegex },
+              ],
+            },
+            {
+              $or: [
+                { userId: null },
+                { userId: "" },
+                { userId: { $exists: false } },
+              ],
+            },
           ],
           bookId: { $nin: existingUserPurchases },
         },
@@ -784,14 +803,20 @@ class OrderServiceClass {
       // If user already owns the book, remove redundant unlinked guest purchases
       if (existingUserPurchases.length > 0) {
         await Purchase.deleteMany({
-          $or: [
-            { customerEmail: normalizedEmail },
-            { customerEmail: emailRegex },
-          ],
-          $or: [
-            { userId: null },
-            { userId: "" },
-            { userId: { $exists: false } },
+          $and: [
+            {
+              $or: [
+                { customerEmail: normalizedEmail },
+                { customerEmail: emailRegex },
+              ],
+            },
+            {
+              $or: [
+                { userId: null },
+                { userId: "" },
+                { userId: { $exists: false } },
+              ],
+            },
           ],
           bookId: { $in: existingUserPurchases },
         });
@@ -800,11 +825,17 @@ class OrderServiceClass {
       // 3. Link past guest invoices
       const invoiceUpdateResult = await Invoice.updateMany(
         {
-          $or: [{ guestEmail: normalizedEmail }, { guestEmail: emailRegex }],
-          $or: [
-            { userId: null },
-            { userId: "" },
-            { userId: { $exists: false } },
+          $and: [
+            {
+              $or: [{ guestEmail: normalizedEmail }, { guestEmail: emailRegex }],
+            },
+            {
+              $or: [
+                { userId: null },
+                { userId: "" },
+                { userId: { $exists: false } },
+              ],
+            },
           ],
         },
         {
