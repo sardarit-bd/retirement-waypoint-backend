@@ -41,30 +41,4 @@ export const getUserFilesValidation = z.object({
   })
 });
 
-export const validate = (schema) => {
-  return async (req, res, next) => {
-    try {
-      if (schema.params) {
-        req.params = await schema.params.parseAsync(req.params);
-      }
-      if (schema.query) {
-        const validatedQuery = await schema.query.parseAsync(req.query);
-        req.validatedQuery = validatedQuery;
-        if (req.query && typeof req.query === 'object') {
-          try {
-            Object.keys(req.query).forEach((key) => delete req.query[key]);
-            Object.assign(req.query, validatedQuery);
-          } catch {
-            // Handle environments where req.query is getter-only
-          }
-        }
-      }
-      if (schema.body) {
-        req.body = await schema.body.parseAsync(req.body);
-      }
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
-};
+export { validate } from "../../middleware/validateMiddleware.js";
