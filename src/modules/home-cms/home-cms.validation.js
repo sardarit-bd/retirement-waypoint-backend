@@ -98,36 +98,4 @@ export const updateHomeCmsValidation = z.object({
     .passthrough(),
 });
 
-export const validate = (schema) => {
-  return async (req, res, next) => {
-    try {
-      const parsed = await schema.parseAsync({
-        body: req.body,
-        query: req.query,
-        params: req.params,
-      });
-
-      if (parsed.body !== undefined) {
-        req.body = parsed.body;
-      }
-      if (parsed.params !== undefined) {
-        req.params = parsed.params;
-      }
-      if (parsed.query !== undefined) {
-        req.validatedQuery = parsed.query;
-        if (req.query && typeof req.query === 'object') {
-          try {
-            Object.keys(req.query).forEach((key) => delete req.query[key]);
-            Object.assign(req.query, parsed.query);
-          } catch {
-            // Handle environments where req.query is getter-only
-          }
-        }
-      }
-
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
-};
+export { validate } from "../../middleware/validateMiddleware.js";
