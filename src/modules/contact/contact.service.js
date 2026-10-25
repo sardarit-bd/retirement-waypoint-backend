@@ -26,7 +26,8 @@ class ContactService {
       userAgent: meta.userAgent || null,
     });
 
-    // Notify admin — failures here should never break the user-facing flow
+    // Notify admin asynchronously without blocking the user response.
+    // Isolated so email network delays or SMTP failures never delay or break contact submission.
     this.sendAdminNotification(contact).catch((error) => {
       console.warn(
         `Failed to send contact notification email: ${error.message}`
