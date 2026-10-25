@@ -5,31 +5,34 @@ import { CONTACT_STATUS } from "./contact.model.js";
 const stripHtml = (value) => value.replace(/<[^>]*>/g, "").trim();
 
 const nameSchema = z
-  .string()
+  .string({ required_error: "Please enter your name", invalid_type_error: "Please enter your name" })
   .trim()
+  .min(1, "Please enter your name")
   .min(3, "Name must be at least 3 characters")
   .max(100, "Name cannot exceed 100 characters")
   .transform(stripHtml);
 
 const emailSchema = z
-  .string()
+  .string({ required_error: "Please enter your email address", invalid_type_error: "Please enter your email address" })
   .trim()
-  .min(1, "Email is required")
-  .email("Invalid email format")
+  .min(1, "Please enter your email address")
+  .email("Please enter a valid email address")
   .max(255, "Email cannot exceed 255 characters")
   .toLowerCase();
 
 const subjectSchema = z
-  .string()
+  .string({ required_error: "Please enter a subject", invalid_type_error: "Please enter a subject" })
   .trim()
+  .min(1, "Please enter a subject")
   .min(5, "Subject must be at least 5 characters")
   .max(150, "Subject cannot exceed 150 characters")
   .transform(stripHtml);
 
 const messageSchema = z
-  .string()
+  .string({ required_error: "Please enter your message", invalid_type_error: "Please enter your message" })
   .trim()
-  .min(20, "Message must be at least 20 characters")
+  .min(1, "Please enter your message")
+  .min(20, "Please enter a message of at least 20 characters")
   .max(3000, "Message cannot exceed 3000 characters")
   .transform(stripHtml);
 
@@ -86,21 +89,4 @@ export const updateContactStatusValidation = z.object({
     .strict(),
 });
 
-export const validate = (schema) => {
-  return async (req, res, next) => {
-    try {
-      if (schema.params) {
-        req.params = await schema.params.parseAsync(req.params);
-      }
-      if (schema.query) {
-        req.validatedQuery = await schema.query.parseAsync(req.query);
-      }
-      if (schema.body) {
-        req.body = await schema.body.parseAsync(req.body);
-      }
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
-};
+export { validate } from "../../middleware/validateMiddleware.js";
