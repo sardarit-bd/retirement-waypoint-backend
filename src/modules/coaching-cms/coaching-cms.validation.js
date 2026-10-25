@@ -60,28 +60,4 @@ export const updateCoachingCmsValidation = z.object({
     .passthrough(),
 });
 
-export const validate = (schema) => {
-  return async (req, res, next) => {
-    try {
-      const parsed = await schema.parseAsync({
-        body: req.body,
-        query: req.query,
-        params: req.params,
-      });
-
-      req.body = parsed.body || req.body;
-      req.params = parsed.params || req.params;
-
-      if (parsed.query && req.query) {
-        Object.keys(req.query).forEach((k) => {
-          if (!(k in parsed.query)) delete req.query[k];
-        });
-        Object.assign(req.query, parsed.query);
-      }
-
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
-};
+export { validate } from "../../middleware/validateMiddleware.js";
